@@ -2,10 +2,27 @@ flask==3.1.0
 python-dotenv==1.0.0
 requests==2.31.0
 schedule==1.2.0
-gspread==5.10.0
+gspread==6.1.2               # обновлённая стабильная версия
 oauth2client==4.1.3
+google-auth==2.35.0          # совместимая с gspread 6.x
+google-auth-oauthlib==1.2.1
+google-auth-httplib2==0.2.0
+httplib2==0.22.0
+pandas==2.2.3                # ✅ совместим с numpy 2.x
+numpy==2.3.4                 # допустимо явно, но можно опустить — pandas потянет сам
+pytz==2025.2
+python-dateutil==2.9.0.post0
+six==1.16.0
+cachetools==5.5.2
+rsa==4.9.1
+pyasn1==0.6.1
+pyasn1-modules==0.4.2
+MarkupSafe==3.0.2
+Werkzeug==3.1.3
+idna==3.11
+certifi==2025.11.12
+charset-normalizer==3.4.4
+urllib3==2.5.0
+click==8.1.7
+blinker==1.9.0
 rapidfuzz==3.2.0
-pandas==2.0.3
-google-auth==2.23.4
-google-auth-oauthlib==1.1.0
-google-auth-httplib2==0.1.1
