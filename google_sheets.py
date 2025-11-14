@@ -1,15 +1,15 @@
 import gspread
 import pandas as pd
 from google.oauth2.service_account import Credentials
-from datetime import datetime, timedelta
+from datetime import datetime
 from config import Config
 import logging
 
 class GoogleSheetsService:
     def __init__(self):
         self.config = Config()
-        self.scope = ['https://spreadsheets.google.com/feeds',
-                     'https://www.googleapis.com/auth/drive']
+        # ✅ Используем современный и минимально необходимый scope
+        self.scope = ['https://www.googleapis.com/auth/spreadsheets']
 
     def _get_client(self) -> gspread.Client:
         """
@@ -22,7 +22,6 @@ class GoogleSheetsService:
             ValueError: Если не удалось создать credentials или авторизовать клиента.
         """
         try:
-            # Встроенные credentials
             creds_json = {
                 "type": "service_account",
                 "project_id": "degustation-bot",
@@ -39,9 +38,9 @@ class GoogleSheetsService:
             creds = Credentials.from_service_account_info(creds_json, scopes=self.scope)
             return gspread.authorize(creds)
         except Exception as e:
-            logging.error(f"Failed to create Google Sheets client: {e}")
-            raise ValueError(f"Authentication failed: {e}")
-    
+            logging.error(f"Failed to create Google Sheets client: {e}", exc_info=True)
+            raise ValueError(f"Authentication failed: {e}") from e
+
     def get_sheet_data(self, sheet_id: str, sheet_name: str = 'Sheet1') -> pd.DataFrame:
         """
         Получает данные из Google Sheet и возвращает их в виде DataFrame.
@@ -53,10 +52,14 @@ class GoogleSheetsService:
         Returns:
             pd.DataFrame: Данные из листа.
         """
-        client = self._get_client()
-        sheet = client.open_by_key(sheet_id).worksheet(sheet_name)
-        data = sheet.get_all_records()
-        return pd.DataFrame(data)
+        try:
+            client = self._get_client()
+            sheet = client.open_by_key(sheet_id).worksheet(sheet_name)
+            data = sheet.get_all_records()
+            return pd.DataFrame(data)
+        except Exception as e:
+            logging.error(f"Failed to fetch data from sheet {sheet_id}/{sheet_name}: {e}", exc_info=True)
+            raise
 
     def get_new_records(self, sheet_id: str, last_check_time: datetime) -> pd.DataFrame:
         """
@@ -69,8 +72,15 @@ class GoogleSheetsService:
         Returns:
             pd.DataFrame: Новые записи.
         """
-        df = self.get_sheet_data(sheet_id)
-        if not df.empty and 'timestamp' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
-            return df[df['timestamp'] > last_check_time]
-        return df
+        try:
+            df = self.get_sheet_data(sheet_id)
+            if not df.empty and 'timestamp' in df.columns:
+                # Приводим к datetime — с обработкой ошибок и явным указанием UTC при необходимости
+                df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+                # Удаляем строки, где timestamp не распарсился
+                df = df.dropna(subset=['timestamp'])
+                return df[df['timestamp'] > last_check_time]
+            return pd.DataFrame()  # пустой DataFrame, если колонки 'timestamp' нет
+        except Exception as e:
+            logging.error(f"Failed to filter new records: {e}", exc_info=True)
+            raise
