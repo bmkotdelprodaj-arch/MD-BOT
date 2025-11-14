@@ -3,6 +3,7 @@ from flask import Flask, request, jsonify
 from telegram_bot import TelegramBot
 from google_sheets import GoogleSheetsService
 from data_processor import DataProcessor
+from main import DegustationAnalyzer
 import logging
 
 app = Flask(__name__)
@@ -15,6 +16,11 @@ logger = logging.getLogger(__name__)
 telegram_bot = TelegramBot()
 google_sheets_service = GoogleSheetsService()
 data_processor = DataProcessor()
+
+@app.route('/', methods=['GET'])
+def root():
+    """Корневой маршрут для избежания 404"""
+    return jsonify({'status': 'ok', 'service': 'MD-BOT'})
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -73,6 +79,25 @@ def health_check():
             'data_processor': 'initialized'
         }
     })
+
+@app.route('/trigger-check', methods=['POST'])
+def trigger_check():
+    """Ручной запуск проверки отчетов"""
+    try:
+        logger.info("Manual trigger check initiated")
+
+        # Создаем экземпляр анализатора
+        analyzer = DegustationAnalyzer()
+
+        # Запускаем проверку
+        analyzer.check_for_new_reports()
+
+        logger.info("Manual trigger check completed successfully")
+        return jsonify({'triggered': True}), 200
+
+    except Exception as e:
+        logger.error(f"Error in manual trigger check: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
