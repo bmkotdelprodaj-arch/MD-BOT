@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: degustation-analyzer
+    name: md-bot
     env: python
     region: frankfurt
     buildCommand: "pip install -r requirements.txt"
@@ -8,8 +8,6 @@ services:
     envVars:
       - key: RENDER
         value: "true"
-      - key: GOOGLE_CREDENTIALS_JSON
-        sync: false
       - key: MORNING_SHEET_ID
         sync: false
       - key: EVENING_SHEET_ID
