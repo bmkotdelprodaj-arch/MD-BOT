@@ -8,8 +8,8 @@ services:
     envVars:
       - key: RENDER
         value: "true"
-      - key: GOOGLE_CREDENTIALS_PATH
-        value: credentials.json
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false
       - key: MORNING_SHEET_ID
         sync: false
       - key: EVENING_SHEET_ID

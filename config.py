@@ -1,11 +1,17 @@
 import os
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
 
 class Config:
     # Google Sheets
-    CREDENTIALS_PATH = os.getenv('GOOGLE_CREDENTIALS_PATH', 'credentials.json')
+    # Если GOOGLE_CREDENTIALS_JSON задана, используем её, иначе файл
+    if os.getenv('GOOGLE_CREDENTIALS_JSON'):
+        CREDENTIALS_JSON = json.loads(os.getenv('GOOGLE_CREDENTIALS_JSON'))
+    else:
+        CREDENTIALS_PATH = os.getenv('GOOGLE_CREDENTIALS_PATH', 'credentials.json')
+
     MORNING_SHEET_ID = os.getenv('MORNING_SHEET_ID')
     EVENING_SHEET_ID = os.getenv('EVENING_SHEET_ID')
     

@@ -72,25 +72,46 @@ class DegustationAnalyzer:
     def generate_daily_summary(self):
         """Генерирует и отправляет сводный отчет за день"""
         try:
-            # Получаем данные за вчерашний день
-            yesterday = (datetime.now() - timedelta(days=1)).date()
+            # Получаем данные за текущий день
+            today = datetime.now().date()
 
-            # Получаем полные данные за вчера
+            # Получаем полные данные за сегодня
             full_morning_df = self.sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID)
             full_evening_df = self.sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID)
 
-            # Вычисляем ожидаемое количество отчетов (из утренних анкет)
+            # Вычисляем ожидаемое количество отчетов (из утренних анкет за сегодня)
             expected_reports = self.data_processor.get_expected_reports_for_day(
-                full_morning_df, full_evening_df, yesterday
+                full_morning_df, full_evening_df, today
             )
 
             actual_reports = len(self.daily_reports)
 
             if expected_reports == 0:
-                logger.info("Нет утренних отчетов за вчерашний день")
+                logger.info("Нет утренних отчетов за текущий день")
                 return
 
-            logger.info(f"Ожидаемые отчеты: {expected_reports}, Получено: {actual_reports}")
+            # Отправляем summary только если все отчеты получены или прошло время окончания дня
+            current_time = datetime.now().time()
+            end_time = datetime.strptime(self.config.END_OF_DAY_TIME, '%H:%M').time()
+
+            if actual_reports == expected_reports:
+                logger.info(f"Все отчеты получены ({actual_reports}/{expected_reports}), отправляем summary")
+                self._send_summary_report(expected_reports, actual_reports)
+            elif current_time >= end_time:
+                logger.info(f"Время окончания дня, отправляем summary ({actual_reports}/{expected_reports})")
+                self._send_summary_report(expected_reports, actual_reports)
+            else:
+                logger.info(f"Ожидаем отчеты: получено {actual_reports}/{expected_reports}")
+
+        except Exception as e:
+            logger.error(f"Ошибка при генерации сводного отчета: {e}")
+
+    def _send_summary_report(self, expected_reports, actual_reports):
+        """Отправляет сводный отчет"""
+        try:
+            if not self.daily_reports:
+                logger.info("Нет данных для сводного отчета")
+                return
 
             summary = self.data_processor.generate_summary_report(
                 self.daily_reports, expected_reports, actual_reports
@@ -107,11 +128,9 @@ class DegustationAnalyzer:
                     self.data_processor.processed_pairs = set()
                 else:
                     logger.error("Ошибка отправки сводного отчета")
-            else:
-                logger.info("Нет данных для сводного отчета")
 
         except Exception as e:
-            logger.error(f"Ошибка при генерации сводного отчета: {e}")
+            logger.error(f"Ошибка при отправке сводного отчета: {e}")
     
     def run_scheduler(self):
         """Запускает планировщик задач"""

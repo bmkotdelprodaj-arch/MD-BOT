@@ -100,10 +100,16 @@ class DataProcessor:
             # Максимально возможные продажи (ограничены остатками)
             max_possible_sales = sum(sales_data[cheese]['start'] for cheese in self.config.CHEESE_TYPES)
 
-            # Формула эффективности
-            if visitors > 0 and max_possible_sales > 0:
-                efficiency = min(conversion / self.config.TARGET_CONVERSION, 1.0) * \
-                            min(total_sales / max_possible_sales, 1.0) * 100
+            # Улучшенная формула эффективности
+            # Базовая конверсия: продажи / посетители
+            base_conversion = total_sales / visitors if visitors > 0 else 0
+
+            # Корректировка на основе остатков: если остатков было мало, эффективность выше
+            stock_factor = min(1.0, max_possible_sales / (visitors * 2)) if visitors > 0 else 1.0  # Предполагаем 2 сыра на посетителя
+
+            # Итоговая эффективность: (базовая конверсия / целевая) * 100 * stock_factor
+            if base_conversion > 0:
+                efficiency = (base_conversion / self.config.TARGET_CONVERSION) * 100 * stock_factor
             else:
                 efficiency = 0
 
