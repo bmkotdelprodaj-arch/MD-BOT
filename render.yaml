@@ -3,7 +3,6 @@ services:
     name: degustation-analyzer
     env: python
     region: frankfurt
-    runtime: python:3.11
     buildCommand: "pip install -r requirements.txt"
     startCommand: "python main.py"
     envVars:
