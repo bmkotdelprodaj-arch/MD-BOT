@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: degustation-analyzer
+    env: python
+    region: frankfurt
+    runtime: python:3.11
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python main.py"
+    envVars:
+      - key: RENDER
+        value: "true"
+      - key: GOOGLE_CREDENTIALS_PATH
+        value: credentials.json
+      - key: MORNING_SHEET_ID
+        sync: false
+      - key: EVENING_SHEET_ID
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: PYTHONUNBUFFERED
+        value: "1"
