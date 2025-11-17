@@ -2,6 +2,9 @@ import pandas as pd
 from datetime import datetime, date
 from config import Config
 from address_normalizer import AddressNormalizer
+import logging
+
+logger = logging.getLogger(__name__)
 
 class DataProcessor:
     def __init__(self):
