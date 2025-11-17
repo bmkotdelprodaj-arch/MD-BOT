@@ -3,81 +3,128 @@ import pandas as pd
 from google.oauth2.service_account import Credentials
 from google.auth.transport.requests import Request
 from datetime import datetime, timedelta
-from config import Config
+import os
+import base64
+import json
 import logging
+
+logger = logging.getLogger(__name__)
 
 class GoogleSheetsService:
     def __init__(self):
-        self.config = Config()
         self.scope = [
             'https://spreadsheets.google.com/feeds',
             'https://www.googleapis.com/auth/drive'
         ]
         self._client_cache = None
         self._client_timestamp = None
-        self.CLIENT_CACHE_TTL = 300  # 5 минут — меньше, чем JWT expiry (1h)
+        self.CLIENT_CACHE_TTL = 300  # 5 минут (меньше срока жизни access_token ~1h)
 
     def _get_fresh_client(self) -> gspread.Client:
-        """Создаёт клиент с обновлёнными credentials (с принудительным refresh)"""
+        """Создаёт новый клиент с корректно загруженными credentials."""
         try:
-            # Создаём credentials
-            if hasattr(self.config, 'CREDENTIALS_JSON') and self.config.CREDENTIALS_JSON:
-                creds = Credentials.from_service_account_info(
-                    self.config.CREDENTIALS_JSON,
-                    scopes=self.scope
-                )
-            else:
-                creds = Credentials.from_service_account_file(
-                    self.config.CREDENTIALS_PATH,
-                    scopes=self.scope
+            # 1. Получаем base64-строку из переменной окружения
+            encoded = os.getenv("GOOGLE_CREDENTIALS_JSON")
+            if not encoded:
+                raise ValueError(
+                    "GOOGLE_CREDENTIALS_JSON environment variable is not set. "
+                    "Please add it in Render dashboard."
                 )
 
-            # 🔥 КРИТИЧЕСКИ: обновляем токен с учётом точного времени Google
-            creds.refresh(Request())
+            # 2. Декодируем base64 → bytes → JSON → dict
+            try:
+                decoded_bytes = base64.b64decode(encoded)
+                creds_dict = json.loads(decoded_bytes)
+            except (ValueError, json.JSONDecodeError) as e:
+                logger.critical("❌ Failed to decode or parse GOOGLE_CREDENTIALS_JSON. "
+                               "Check that it's valid base64-encoded JSON.")
+                raise ValueError("Invalid GOOGLE_CREDENTIALS_JSON format") from e
 
-            return gspread.authorize(creds)
+            # 3. Проверяем обязательные поля (защита от пустого/битого JSON)
+            required_keys = ["type", "project_id", "private_key", "client_email", "client_id"]
+            missing = [k for k in required_keys if k not in creds_dict]
+            if missing:
+                raise ValueError(f"Missing required keys in credentials JSON: {missing}")
+
+            # 4. Логируем для отладки (можно закомментировать после проверки)
+            pk_preview = creds_dict["private_key"][:40].replace("\n", "\\n")
+            logger.info(f"✅ Credentials loaded. private_key preview: {pk_preview}...")
+
+            # 5. Создаём credentials
+            creds = Credentials.from_service_account_info(creds_dict, scopes=self.scope)
+
+            # 6. Опционально: принудительно обновляем access token (не обязательно — gspread сам сделает при первом запросе)
+            # Но если хочешь быть уверенным — оставь:
+            try:
+                creds.refresh(Request())
+                logger.debug("🔑 Access token refreshed successfully")
+            except Exception as refresh_err:
+                logger.warning(f"⚠️ Token refresh failed (may still work on first request): {refresh_err}")
+
+            # 7. Авторизуем gspread
+            client = gspread.authorize(creds)
+            logger.info("✅ New Google Sheets client created successfully")
+            return client
 
         except Exception as e:
-            logging.error(f"Auth failed during client creation: {e}", exc_info=True)
+            logger.error(f"❌ Auth failed during client creation: {e}", exc_info=True)
             raise
 
     def _get_client(self) -> gspread.Client:
-        """Кэшированный клиент с TTL (для производительности, но безопасно)"""
+        """Возвращает кэшированный клиент или создаёт новый при истечении TTL."""
         now = datetime.now()
-        if (self._client_cache is None or
+        cache_expired = (
+            self._client_cache is None or
             self._client_timestamp is None or
-            (now - self._client_timestamp).total_seconds() > self.CLIENT_CACHE_TTL):
-            
-            logging.info("🔄 Creating new Google Sheets client (cache expired or first call)")
+            (now - self._client_timestamp).total_seconds() > self.CLIENT_CACHE_TTL
+        )
+
+        if cache_expired:
+            logger.info("🔄 Creating new Google Sheets client (cache expired or first call)")
             self._client_cache = self._get_fresh_client()
             self._client_timestamp = now
 
         return self._client_cache
 
-    def get_sheet_data(self, sheet_id: str, sheet_name: str = 'Sheet1') -> pd.DataFrame:
-        """Получает данные — использует кэшированный, но обновляемый клиент"""
+    def get_sheet_data(self, sheet_id: str, sheet_name: str = "Sheet1") -> pd.DataFrame:
+        """Получает данные из Google Sheets в виде pandas DataFrame."""
         try:
             client = self._get_client()
             sheet = client.open_by_key(sheet_id).worksheet(sheet_name)
-            data = sheet.get_all_records()
-            return pd.DataFrame(data)
+            records = sheet.get_all_records()
+            df = pd.DataFrame(records)
+            logger.debug(f"📥 Loaded {len(df)} rows from sheet '{sheet_name}' ({sheet_id})")
+            return df
         except Exception as e:
-            # При ошибке аутентификации — сбрасываем кэш и повторяем
+            # Не делаем retry при Invalid JWT — это ошибка конфигурации, а не временная
             if "invalid_grant" in str(e) or "Invalid JWT" in str(e):
-                logging.warning("⚠️ Invalid token detected — clearing cache and retrying...")
-                self._client_cache = None
-                self._client_timestamp = None
-                # Повторная попытка
-                client = self._get_client()
-                sheet = client.open_by_key(sheet_id).worksheet(sheet_name)
-                data = sheet.get_all_records()
-                return pd.DataFrame(data)
-            else:
-                raise
+                logger.critical("🔴 Persistent auth error — check GOOGLE_CREDENTIALS_JSON!")
+            raise
 
     def get_new_records(self, sheet_id: str, last_check_time: datetime) -> pd.DataFrame:
+        """Возвращает только новые записи, добавленные после last_check_time."""
         df = self.get_sheet_data(sheet_id)
-        if not df.empty and 'timestamp' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
-            return df[df['timestamp'] > last_check_time]
-        return df
+        if df.empty:
+            return df
+
+        # Предполагается, что в таблице есть колонка 'timestamp' в формате ISO или 'dd.mm.yyyy HH:MM'
+        if 'timestamp' not in df.columns:
+            logger.warning("⚠️ Column 'timestamp' not found — returning all records")
+            return df
+
+        # Преобразуем в datetime (гибко: поддерживаем разные форматы)
+        try:
+            # Сначала пробуем ISO
+            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+            # Если много NaT — попробуем ручной формат (часто используется вручную)
+            if df['timestamp'].isna().sum() > len(df) * 0.5:
+                df['timestamp'] = pd.to_datetime(df['timestamp'], format='%d.%m.%Y %H:%M', errors='coerce')
+        except Exception as parse_err:
+            logger.error(f"⚠️ Failed to parse 'timestamp' column: {parse_err}")
+            return df
+
+        # Фильтруем по времени
+        mask = df['timestamp'] > last_check_time
+        new_df = df[mask].copy()
+        logger.info(f"🆕 Found {len(new_df)} new records (out of {len(df)}) since {last_check_time}")
+        return new_df
