@@ -1,0 +1,41 @@
+name: Trigger Report Check
+
+on:
+  schedule:
+    # Запуск каждые 5 минут
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # Позволяет запускать вручную
+
+jobs:
+  trigger-check:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Trigger report check
+      run: |
+        # Получаем URL из переменных окружения или используем дефолтный
+        APP_URL="${{ secrets.RENDER_APP_URL }}"
+        if [ -z "$APP_URL" ]; then
+          echo "RENDER_APP_URL secret not set, using default"
+          APP_URL="https://md-bot-nn5g.onrender.com"
+        fi
+
+        echo "Triggering check on $APP_URL/trigger-check"
+
+        # Делаем POST запрос с retry
+        for i in {1..3}; do
+          if curl -X POST -H "Content-Type: application/json" \
+               --max-time 30 \
+               --retry 3 \
+               --retry-delay 5 \
+               "$APP_URL/trigger-check"; then
+            echo "Trigger successful"
+            exit 0
+          else
+            echo "Attempt $i failed, retrying..."
+            sleep 10
+          fi
+        done
+
+        echo "All attempts failed"
+        exit 1
