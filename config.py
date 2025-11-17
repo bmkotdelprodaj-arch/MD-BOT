@@ -4,6 +4,8 @@ import base64
 import logging
 from dotenv import load_dotenv
 
+# 🔑 КРИТИЧЕСКИ: загружаем .env ДО определения класса Config
+# На Render .env нет, но load_dotenv() безопасен — просто пропустит.
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -103,5 +105,5 @@ class Config:
     }
 
     TARGET_CONVERSION = 0.5
-    CHECK_INTERVAL = 5
-    END_OF_DAY_TIME = "22:00"
+    CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "5"))
+    END_OF_DAY_TIME = os.getenv("END_OF_DAY_TIME", "22:00")
