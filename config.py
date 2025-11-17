@@ -8,26 +8,44 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 class Config:
-    # Google Sheets
-    # Если GOOGLE_CREDENTIALS_JSON задана, используем её, иначе файл
-    if os.getenv('GOOGLE_CREDENTIALS_JSON'):
-        import base64
-        CREDENTIALS_JSON = json.loads(base64.b64decode(os.getenv('GOOGLE_CREDENTIALS_JSON')).decode('utf-8'))
+    # Google Sheets: загрузка учётных данных
+    CREDENTIALS_JSON = None
+    CREDENTIALS_PATH = os.getenv('GOOGLE_CREDENTIALS_PATH', 'credentials.json')
+
+    # Сначала пробуем GOOGLE_CREDENTIALS_JSON (base64-encoded JSON)
+    google_creds_b64 = os.getenv('GOOGLE_CREDENTIALS_JSON')
+    if google_creds_b64:
+        try:
+            decoded = base64.b64decode(google_creds_b64).decode('utf-8')
+            CREDENTIALS_JSON = json.loads(decoded)
+            logger.info("Loaded credentials from GOOGLE_CREDENTIALS_JSON")
+        except Exception as e:
+            logger.error(f"Failed to decode GOOGLE_CREDENTIALS_JSON: {e}")
     else:
-        CREDENTIALS_PATH = os.getenv('GOOGLE_CREDENTIALS_PATH', 'credentials.json')
-        # Загружаем credentials из файла, если переменная окружения не задана
+        # Иначе — из файла
         try:
             with open(CREDENTIALS_PATH, 'r') as f:
                 CREDENTIALS_JSON = json.load(f)
+            logger.info(f"Loaded credentials from {CREDENTIALS_PATH}")
         except FileNotFoundError:
-            CREDENTIALS_JSON = None
+            logger.error(f"credentials file not found: {CREDENTIALS_PATH}")
+        except Exception as e:
+            logger.error(f"Error loading credentials from file: {e}")
 
-    # Нормализация private_key для корректной работы JWT
+    # 🔥 КРИТИЧЕСКАЯ НОРМАЛИЗАЦИЯ: всегда заменяем \\n → \n, даже если их нет
     if CREDENTIALS_JSON and "private_key" in CREDENTIALS_JSON:
-        if "\\n" in CREDENTIALS_JSON["private_key"]:
-            CREDENTIALS_JSON["private_key"] = CREDENTIALS_JSON["private_key"].replace("\\n", "\n")
-            logger.debug(f"[CREDENTIALS] private_key normalized: starts with {repr(CREDENTIALS_JSON['private_key'][:30])}")
+        original = CREDENTIALS_JSON["private_key"]
+        normalized = original.replace("\\n", "\n")
+        if normalized != original:
+            logger.debug("Normalized private_key: replaced \\n with actual newlines")
+        CREDENTIALS_JSON["private_key"] = normalized
 
+    # Проверка: если всё ещё нет credentials — критическая ошибка
+    if not CREDENTIALS_JSON:
+        logger.critical("❌ NO GOOGLE CREDENTIALS FOUND! Set GOOGLE_CREDENTIALS_JSON or provide credentials.json")
+        raise RuntimeError("Google credentials are missing")
+
+    # --- Остальные параметры ---
     MORNING_SHEET_ID = os.getenv('MORNING_SHEET_ID')
     EVENING_SHEET_ID = os.getenv('EVENING_SHEET_ID')
     
