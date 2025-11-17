@@ -1,8 +1,11 @@
 import os
 import json
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 class Config:
     # Google Sheets
@@ -18,6 +21,12 @@ class Config:
                 CREDENTIALS_JSON = json.load(f)
         except FileNotFoundError:
             CREDENTIALS_JSON = None
+
+    # Нормализация private_key для корректной работы JWT
+    if CREDENTIALS_JSON and "private_key" in CREDENTIALS_JSON:
+        if "\\n" in CREDENTIALS_JSON["private_key"]:
+            CREDENTIALS_JSON["private_key"] = CREDENTIALS_JSON["private_key"].replace("\\n", "\n")
+            logger.debug(f"[CREDENTIALS] private_key normalized: starts with {repr(CREDENTIALS_JSON['private_key'][:30])}")
 
     MORNING_SHEET_ID = os.getenv('MORNING_SHEET_ID')
     EVENING_SHEET_ID = os.getenv('EVENING_SHEET_ID')

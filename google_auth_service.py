@@ -88,7 +88,7 @@ class GoogleAuthService:
             if missing_fields:
                 raise ValueError(f"Отсутствуют обязательные поля в credentials: {missing_fields}")
 
-            # Обрабатываем экранирование переносов строк в private_key
+            # Обрабатываем экранирование переносов строк в private_key (если не обработано ранее)
             if '\\n' in creds_data['private_key']:
                 creds_data['private_key'] = creds_data['private_key'].replace('\\n', '\n')
                 logger.info("Обработано экранирование переносов строк в private_key")
