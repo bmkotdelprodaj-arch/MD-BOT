@@ -67,6 +67,8 @@ class Config:
     # === 4. Остальные настройки ===
     MORNING_SHEET_ID = os.getenv("MORNING_SHEET_ID")
     EVENING_SHEET_ID = os.getenv("EVENING_SHEET_ID")
+    MORNING_SHEET_NAME = "Form Responses 1"
+    EVENING_SHEET_NAME = "Form Responses 1"
 
     BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")  # ID группы
@@ -107,3 +109,8 @@ class Config:
     TARGET_CONVERSION = 0.5
     CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "5"))
     END_OF_DAY_TIME = os.getenv("END_OF_DAY_TIME", "22:00")
+
+    def __init__(self):
+        for key, value in self.__class__.__dict__.items():
+            if not key.startswith("__") and not callable(value):
+                setattr(self, key, value)
