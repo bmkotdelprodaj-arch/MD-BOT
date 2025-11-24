@@ -65,8 +65,8 @@ class Config:
         raise RuntimeError("Google credentials missing — see logs above")
 
     # === 4. Остальные настройки ===
-    MORNING_SHEET_ID = os.getenv("MORNING_SHEET_ID")
-    EVENING_SHEET_ID = os.getenv("EVENING_SHEET_ID")
+    MORNING_SHEET_ID = os.getenv("MORNING_SHEET_ID", "1Kmwgh4bH6O8ghyK_FOGMAqoHcWRbIA5DVLBC_6YhX8U")
+    EVENING_SHEET_ID = os.getenv("EVENING_SHEET_ID", "1cLaeC_pWTIMUZuy5FGoOrQi7xsNX_Wsvxs8jUTWZCBo")
     MORNING_SHEET_NAME = "Form Responses 1"
     EVENING_SHEET_NAME = "Form Responses 1"
 
