@@ -194,8 +194,8 @@ class TelegramBot:
     def show_city_stats(self, user_id, date_obj, google_sheets_service, data_processor):
         """Показывает статистику по городу"""
         # Получаем все отчеты за дату
-        morning_df = google_sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID)
-        evening_df = google_sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID)
+        morning_df = google_sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID, self.config.MORNING_SHEET_NAME)
+        evening_df = google_sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID, self.config.EVENING_SHEET_NAME)
 
         # Фильтруем по дате
         morning_filtered = morning_df[morning_df[self.config.MORNING_COLUMNS['date']].dt.date == date_obj]
@@ -222,8 +222,8 @@ class TelegramBot:
 
     def show_general_date_stats(self, user_id, date_obj, google_sheets_service, data_processor):
         """Показывает общую статистику за дату"""
-        morning_df = google_sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID)
-        evening_df = google_sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID)
+        morning_df = google_sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID, self.config.MORNING_SHEET_NAME)
+        evening_df = google_sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID, self.config.EVENING_SHEET_NAME)
 
         morning_filtered = morning_df[morning_df[self.config.MORNING_COLUMNS['date']].dt.date == date_obj]
         evening_filtered = evening_df[evening_df[self.config.EVENING_COLUMNS['date']].dt.date == date_obj]
@@ -330,8 +330,8 @@ class TelegramBot:
             return self.send_message("❌ Ошибка: не все параметры выбраны")
 
         # Получаем данные и находим соответствующий отчет
-        morning_df = google_sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID)
-        evening_df = google_sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID)
+        morning_df = google_sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID, self.config.MORNING_SHEET_NAME)
+        evening_df = google_sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID, self.config.EVENING_SHEET_NAME)
 
         # Фильтруем по дате
         morning_filtered = morning_df[morning_df[self.config.MORNING_COLUMNS['date']].dt.date == date_obj]
@@ -348,8 +348,8 @@ class TelegramBot:
 
     def show_network_stats(self, user_id, date_obj, network, google_sheets_service, data_processor):
         """Показывает статистику по сети"""
-        morning_df = google_sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID)
-        evening_df = google_sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID)
+        morning_df = google_sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID, self.config.MORNING_SHEET_NAME)
+        evening_df = google_sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID, self.config.EVENING_SHEET_NAME)
 
         morning_filtered = morning_df[morning_df[self.config.MORNING_COLUMNS['date']].dt.date == date_obj]
         evening_filtered = evening_df[evening_df[self.config.EVENING_COLUMNS['date']].dt.date == date_obj]
@@ -378,8 +378,8 @@ class TelegramBot:
     def get_available_dates(self, google_sheets_service):
         """Получает список доступных дат из таблиц"""
         try:
-            morning_df = google_sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID)
-            evening_df = google_sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID)
+        morning_df = google_sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID, self.config.MORNING_SHEET_NAME)
+        evening_df = google_sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID, self.config.EVENING_SHEET_NAME)
 
             dates = set()
             if not morning_df.empty:
@@ -397,8 +397,8 @@ class TelegramBot:
     def get_available_cities(self, google_sheets_service, date_obj):
         """Получает список городов за определенную дату"""
         try:
-            morning_df = google_sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID)
-            evening_df = google_sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID)
+        morning_df = google_sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID, self.config.MORNING_SHEET_NAME)
+        evening_df = google_sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID, self.config.EVENING_SHEET_NAME)
 
             cities = set()
             if not morning_df.empty:
