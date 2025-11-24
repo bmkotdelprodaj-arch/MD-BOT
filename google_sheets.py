@@ -7,6 +7,7 @@ import os
 import base64
 import json
 import logging
+from gspread.exceptions import WorksheetNotFound
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +32,17 @@ class GoogleSheetsService:
                     "Please add it in Render dashboard."
                 )
 
+            # Лог текущего времени UTC для диагностики
+            logger.info(f"Current UTC time for auth check: {datetime.utcnow().isoformat()}")
+
             # 2. Декодируем base64 → bytes → JSON → dict
             try:
                 decoded_bytes = base64.b64decode(encoded)
                 creds_dict = json.loads(decoded_bytes)
+                logger.debug(f"Decoded credentials JSON keys: {list(creds_dict.keys())}")
             except (ValueError, json.JSONDecodeError) as e:
                 logger.critical("❌ Failed to decode or parse GOOGLE_CREDENTIALS_JSON. "
-                               "Check that it's valid base64-encoded JSON.")
+                               "Check that it's valid base64-encoded JSON.", exc_info=True)
                 raise ValueError("Invalid GOOGLE_CREDENTIALS_JSON format") from e
 
             # 3. Проверяем обязательные поля (защита от пустого/битого JSON)
@@ -54,12 +59,11 @@ class GoogleSheetsService:
             creds = Credentials.from_service_account_info(creds_dict, scopes=self.scope)
 
             # 6. Опционально: принудительно обновляем access token (не обязательно — gspread сам сделает при первом запросе)
-            # Но если хочешь быть уверенным — оставь:
             try:
                 creds.refresh(Request())
-                logger.debug("🔑 Access token refreshed successfully")
+                logger.info("🔑 Access token refreshed successfully")
             except Exception as refresh_err:
-                logger.warning(f"⚠️ Token refresh failed (may still work on first request): {refresh_err}")
+                logger.error(f"⚠️ Token refresh failed with exception: {refresh_err}", exc_info=True)
 
             # 7. Авторизуем gspread
             client = gspread.authorize(creds)
@@ -86,11 +90,18 @@ class GoogleSheetsService:
 
         return self._client_cache
 
-    def get_sheet_data(self, sheet_id: str, sheet_name: str = "Sheet1") -> pd.DataFrame:
+    def get_sheet_data(self, sheet_id: str, sheet_name: str) -> pd.DataFrame:
         """Получает данные из Google Sheets в виде pandas DataFrame."""
+        logger.info(f"Запрос данных с листа '{sheet_name}' в таблице {sheet_id}")
         try:
             client = self._get_client()
-            sheet = client.open_by_key(sheet_id).worksheet(sheet_name)
+            try:
+                sheet = client.open_by_key(sheet_id).worksheet(sheet_name)
+            except WorksheetNotFound:
+                available_sheets = [ws.title for ws in client.open_by_key(sheet_id).worksheets()]
+                error_msg = f"Лист '{sheet_name}' не найден в таблице {sheet_id}. Доступные листы: {available_sheets}"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
             records = sheet.get_all_records()
             df = pd.DataFrame(records)
             logger.debug(f"📥 Loaded {len(df)} rows from sheet '{sheet_name}' ({sheet_id})")
@@ -99,11 +110,12 @@ class GoogleSheetsService:
             # Не делаем retry при Invalid JWT — это ошибка конфигурации, а не временная
             if "invalid_grant" in str(e) or "Invalid JWT" in str(e):
                 logger.critical("🔴 Persistent auth error — check GOOGLE_CREDENTIALS_JSON!")
+            logger.error(f"❌ Error fetching sheet data: {e}", exc_info=True)
             raise
 
-    def get_new_records(self, sheet_id: str, last_check_time: datetime) -> pd.DataFrame:
+    def get_new_records(self, sheet_id: str, last_check_time: datetime, sheet_name: str) -> pd.DataFrame:
         """Возвращает только новые записи, добавленные после last_check_time."""
-        df = self.get_sheet_data(sheet_id)
+        df = self.get_sheet_data(sheet_id, sheet_name)
         if df.empty:
             return df
 
