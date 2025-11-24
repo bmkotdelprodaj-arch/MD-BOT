@@ -85,6 +85,18 @@ class TelegramBot:
             address = callback_data.split("_", 1)[1]
             return self.handle_address_selection(user_id, address, google_sheets_service, data_processor)
 
+    def get_available_dates(self, google_sheets_service):
+        """Получает список доступных дат из Google Sheets"""
+        morning_df = google_sheets_service.get_sheet_data(Config.MORNING_SHEET_ID, Config.MORNING_SHEET_NAME)
+        evening_df = google_sheets_service.get_sheet_data(Config.EVENING_SHEET_ID, Config.EVENING_SHEET_NAME)
+
+        dates_morning = set(morning_df[Config.MORNING_COLUMNS['date']].dt.date.unique())
+        dates_evening = set(evening_df[Config.EVENING_COLUMNS['date']].dt.date.unique())
+
+        available_dates = sorted(list(dates_morning.union(dates_evening)))
+
+        return available_dates
+
     def start_store_history(self, user_id, google_sheets_service):
         """Начинает процесс выбора для истории по магазину"""
         self.user_states[user_id] = "waiting_date_store"
@@ -167,71 +179,3 @@ class TelegramBot:
             return self.show_general_date_stats(user_id, date_obj, google_sheets_service, data_processor)
         elif user_type == "network":
             return self.show_network_selection(user_id, date_obj, google_sheets_service)
-
-    def show_city_selection(self, user_id, date_obj, google_sheets_service):
-        """Показывает выбор города для истории по магазину"""
-        cities = self.get_available_cities(google_sheets_service, date_obj)
-        if not cities:
-            return self.send_message("❌ Нет данных за выбранную дату")
-
-        keyboard = {"inline_keyboard": []}
-        for city in sorted(cities):
-            keyboard["inline_keyboard"].append([
-                {"text": city, "callback_data": f"city_{city}"}
-            ])
-
-        self.user_data[user_id]["selected_date"] = date_obj
-        text = f"🏙️ Выберите город за {date_obj.strftime('%d.%m.%Y')}:"
-        return self.send_message(text, reply_markup=keyboard)
-
-    def show_city_stats(self, user_id, date_obj, google_sheets_service, data_processor):
-        """Показывает статистику по городу"""
-        morning_df = google_sheets_service.get_sheet_data(Config.MORNING_SHEET_ID, Config.MORNING_SHEET_NAME)
-        evening_df = google_sheets_service.get_sheet_data(Config.EVENING_SHEET_ID, Config.EVENING_SHEET_NAME)
-
-        morning_filtered = morning_df[morning_df[Config.MORNING_COLUMNS['date']].dt.date == date_obj]
-        evening_filtered = evening_df[evening_df[Config.EVENING_COLUMNS['date']].dt.date == date_obj]
-
-        if morning_filtered.empty and evening_filtered.empty:
-            return self.send_message(f"❌ Нет данных за {date_obj.strftime('%d.%m.%Y')}")
-
-        city_stats = self.get_city_statistics(morning_filtered, evening_filtered, data_processor)
-
-        if not city_stats:
-            return self.send_message(f"❌ Нет завершенных отчетов за {date_obj.strftime('%d.%m.%Y')}")
-
-        message = f"🏙️ <b>Статистика по городам за {date_obj.strftime('%d.%m.%Y')}</b>\n\n"
-
-        for city, stats in sorted(city_stats.items()):
-            message += f"🏙️ <b>{city}</b>\n"
-            message += f"🏪 Магазинов: {stats['stores']}\n"
-            message += f"💰 Продаж: {stats['sales']} шт.\n"
-            message += f"📈 Эффективность: {stats['efficiency']}%\n\n"
-
-        return self.send_message(message)
-
-    def show_general_date_stats(self, user_id, date_obj, google_sheets_service, data_processor):
-        """Показывает общую статистику за дату"""
-        morning_df = google_sheets_service.get_sheet_data(Config.MORNING_SHEET_ID, Config.MORNING_SHEET_NAME)
-        evening_df = google_sheets_service.get_sheet_data(Config.EVENING_SHEET_ID, Config.EVENING_SHEET_NAME)
-
-        morning_filtered = morning_df[morning_df[Config.MORNING_COLUMNS['date']].dt.date == date_obj]
-        evening_filtered = evening_df[evening_df[Config.EVENING_COLUMNS['date']].dt.date == date_obj]
-
-        if morning_filtered.empty and evening_filtered.empty:
-            return self.send_message(f"❌ Нет данных за {date_obj.strftime('%d.%m.%Y')}")
-
-        reports = data_processor.process_daily_reports(morning_df, evening_filtered)
-
-        if not reports:
-            expected = len(morning_filtered)
-            message = f"📊 <b>Статистика за {date_obj.strftime('%d.%m.%Y')}</b>\n\n"
-            message += f"📋 Ожидалось отчетов: {expected}\n"
-            message += f"✅ Получено отчетов: 0\n"
-            message += f"❌ Пропущено: {expected}\n\n"
-            message += "Пока нет завершенных пар отчетов за эту дату."
-        else:
-            total_sales = sum(r['total_sales'] for r in reports)
-            avg_efficiency = sum(r['efficiency'] for r in reports) / len(reports)
-
-            message
