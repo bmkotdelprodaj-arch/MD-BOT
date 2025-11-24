@@ -378,8 +378,8 @@ class TelegramBot:
     def get_available_dates(self, google_sheets_service):
         """Получает список доступных дат из таблиц"""
         try:
-        morning_df = google_sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID, self.config.MORNING_SHEET_NAME)
-        evening_df = google_sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID, self.config.EVENING_SHEET_NAME)
+            morning_df = google_sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID, self.config.MORNING_SHEET_NAME)
+            evening_df = google_sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID, self.config.EVENING_SHEET_NAME)
 
             dates = set()
             if not morning_df.empty:
@@ -397,8 +397,8 @@ class TelegramBot:
     def get_available_cities(self, google_sheets_service, date_obj):
         """Получает список городов за определенную дату"""
         try:
-        morning_df = google_sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID, self.config.MORNING_SHEET_NAME)
-        evening_df = google_sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID, self.config.EVENING_SHEET_NAME)
+            morning_df = google_sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID, self.config.MORNING_SHEET_NAME)
+            evening_df = google_sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID, self.config.EVENING_SHEET_NAME)
 
             cities = set()
             if not morning_df.empty:
