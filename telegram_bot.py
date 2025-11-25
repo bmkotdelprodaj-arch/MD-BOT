@@ -736,9 +736,13 @@ class TelegramBot:
         message = f"🏪 Магазинов: {summary['stores']}\n"
         message += f"👥 Участников: {summary['total_visitors']}\n\n"
 
-        message += " cheeses_start = report['cheese_data']
-        message += "\n cheeses_end = report['cheese_data']
-        message += "\n cheese_sold = report['cheese_data']
+        # Выводим данные по сырам
+        for cheese in Config.CHEESE_TYPES:
+            start = summary['cheese_start'].get(cheese, 0)
+            end = summary['cheese_end'].get(cheese, 0)
+            sold = summary['cheese_sold'].get(cheese, 0)
+            message += f"🧀 {cheese}: начало дня: {start}, конец дня: {end}, продано: {sold}\n"
+
         message += f"\n📦 <b>Всего продано:</b> {summary['total_sales']} шт.\n"
         message += f"🎯 <b>Эффективность:</b> {summary['efficiency']:.1f}%\n"
 
@@ -767,12 +771,11 @@ class TelegramBot:
 
 """
 
-        # Выводим остатки на начало дня
+        # Выводим остатки и продажи по сырам
         for cheese in Config.CHEESE_TYPES:
-            data = report['cheese_data'].get(cheese, {'start': 0})
-            message += f" cheeses_start = report['cheese_data']
-        message += "\n cheeses_end = report['cheese_data']
-        message += "\n cheese_sold = report['cheese_data']
+            data = report['cheese_data'].get(cheese, {'start': 0, 'end': 0, 'sold': 0})
+            message += f"🧀 {cheese}: начало дня: {data['start']}, конец дня: {data['end']}, продано: {data['sold']}\n"
+
         message += f"\n📦 <b>Всего продано:</b> {report['total_sales']} шт.\n"
         message += f"🎯 <b>Эффективность:</b> {report['efficiency']}%\n"
 
