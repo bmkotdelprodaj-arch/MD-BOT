@@ -92,28 +92,38 @@ class GoogleSheetsService:
 
     def get_sheet_data(self, sheet_id: str, sheet_name: str) -> pd.DataFrame:
         """Получает данные из Google Sheets в виде pandas DataFrame."""
-        logger.info(f"Запрос данных с листа '{sheet_name}' в таблице {sheet_id}")
+        if not sheet_id or not isinstance(sheet_id, str) or sheet_id.strip() == "":
+            error_msg = "Ошибка: sheet_id пуст или некорректен."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        logger.info(f"Запрос данных с листа '{sheet_name}' в таблице с ключом: {sheet_id}")
         try:
             client = self._get_client()
             try:
                 sheet = client.open_by_key(sheet_id).worksheet(sheet_name)
             except WorksheetNotFound:
                 available_sheets = [ws.title for ws in client.open_by_key(sheet_id).worksheets()]
-                error_msg = f"Лист '{sheet_name}' не найден в таблице {sheet_id}. Доступные листы: {available_sheets}"
+                error_msg = f"Лист '{sheet_name}' не найден в таблице с ключом {sheet_id}. Доступные листы: {available_sheets}"
                 logger.error(error_msg)
                 raise ValueError(error_msg)
+            except gspread.exceptions.APIError as api_error:
+                if api_error.response.status_code == 404:
+                    logger.error(f"Ошибка 404: таблица с ключом {sheet_id} не найдена или отсутствуют права доступа.")
+                    raise ValueError(f"Ошибка 404: таблица с ключом {sheet_id} не найдена или отсутствуют права доступа.")
+                else:
+                    raise
             records = sheet.get_all_records()
             df = pd.DataFrame(records)
-            logger.debug(f"📥 Loaded {len(df)} rows from sheet '{sheet_name}' ({sheet_id})")
+            logger.debug(f"📥 Загружено {len(df)} строк с листа '{sheet_name}' (ключ: {sheet_id})")
             return df
         except Exception as e:
-            # Не делаем retry при Invalid JWT — это ошибка конфигурации, а не временная
             if "invalid_grant" in str(e) or "Invalid JWT" in str(e):
-                logger.critical("🔴 Persistent auth error — check GOOGLE_CREDENTIALS_JSON!")
-            logger.error(f"❌ Error fetching sheet data: {e}", exc_info=True)
+                logger.critical("🔴 Постоянная ошибка аутентификации — проверьте GOOGLE_CREDENTIALS_JSON!")
+            logger.error(f"❌ Ошибка при получении данных листа: {e}", exc_info=True)
             raise
 
-    def get_new_records(self, sheet_id: str, last_check_time: datetime, sheet_name: str) -> pd.DataFrame:
+    def get_new_records(self, sheet_id: str, last_check_time: datetime, sheet_name: str = "Form Responses 1") -> pd.DataFrame:
         """Возвращает только новые записи, добавленные после last_check_time."""
         df = self.get_sheet_data(sheet_id, sheet_name)
         if df.empty:
