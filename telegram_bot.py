@@ -725,13 +725,24 @@ class TelegramBot:
         return total
 
     def format_report_summary(self, summary):
+        """Форматирует агрегированный отчет в строку"""
         message = f"🏪 Магазинов: {summary['stores']}\n"
         message += f"👥 Участников: {summary['total_visitors']}\n\n"
 
-        message += " cheeses_start = report['cheese_data']
-        message += "\n cheeses_end = report['cheese_data']
-        message += "\n cheese_sold = report['cheese_data']
-        message += f"\n📦 <b>Всего продано:</b> {report['total_sales']} шт.\n"
-        message += f"🎯 <b>Эффективность:</b> {report['efficiency']}%\n"
+        message += "🧀 <b>Остатки на начало дня:</b>\n"
+        for cheese, value in summary['cheese_start'].items():
+            message += f"• {cheese}: {value} шт.\n"
+
+        message += "\n🏁 <b>Остатки на конец дня:</b>\n"
+        for cheese, value in summary['cheese_end'].items():
+            message += f"• {cheese}: {value} шт.\n"
+
+        message += "\n💰 <b>Продажи:</b>\n"
+        for cheese, value in summary['cheese_sold'].items():
+            if value > 0:
+                message += f"• {cheese}: {value} шт.\n"
+
+        message += f"\n📦 <b>Всего продано:</b> {summary['total_sales']} шт.\n"
+        message += f"🎯 <b>Эффективность:</b> {summary['efficiency']:.1f}%\n"
 
         return message
