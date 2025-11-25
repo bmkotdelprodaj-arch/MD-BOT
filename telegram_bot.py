@@ -3,6 +3,8 @@ from config import Config
 import logging
 from datetime import datetime, timedelta
 import json
+import pandas as pd
+
 
 class TelegramBot:
     def __init__(self):
@@ -30,10 +32,12 @@ class TelegramBot:
         try:
             response = requests.post(url, data=payload)
             response.raise_for_status()
+            logging.info(f"send_message: Message sent successfully to chat_id {self.chat_id}")
             return True
         except Exception as e:
             logging.error(f"Ошибка отправки в Telegram: {e}")
             return False
+
 
     def send_start_menu(self):
         """Отправляет стартовое меню с инлайн кнопками"""
@@ -64,31 +68,47 @@ class TelegramBot:
 
     def handle_callback(self, callback_data, user_id, google_sheets_service, data_processor):
         """Обрабатывает нажатия инлайн кнопок"""
-        if callback_data == "history_store":
-            return self.start_store_history(user_id, google_sheets_service)
-        elif callback_data == "history_city":
-            return self.start_city_history(user_id, google_sheets_service)
-        elif callback_data == "history_date":
-            return self.start_date_history(user_id)
-        elif callback_data == "history_network":
-            return self.start_network_history(user_id, google_sheets_service)
-        elif callback_data.startswith("date_"):
-            date = callback_data.split("_", 1)[1]
-            return self.handle_date_selection(user_id, date, google_sheets_service, data_processor)
-        elif callback_data.startswith("city_"):
-            city = callback_data.split("_", 1)[1]
-            return self.handle_city_selection(user_id, city, google_sheets_service, data_processor)
-        elif callback_data.startswith("network_"):
-            network = callback_data.split("_", 1)[1]
-            return self.handle_network_selection(user_id, network, google_sheets_service, data_processor)
-        elif callback_data.startswith("address_"):
-            address = callback_data.split("_", 1)[1]
-            return self.handle_address_selection(user_id, address, google_sheets_service, data_processor)
+        try:
+            if callback_data == "history_store":
+                logging.info(f"handle_callback: history_store selected by user {user_id}")
+                return self.start_store_history(user_id, google_sheets_service)
+            elif callback_data == "history_city":
+                logging.info(f"handle_callback: history_city selected by user {user_id}")
+                return self.start_city_history(user_id, google_sheets_service)
+            elif callback_data == "history_date":
+                logging.info(f"handle_callback: history_date selected by user {user_id}")
+                return self.start_date_history(user_id)
+            elif callback_data == "history_network":
+                logging.info(f"handle_callback: history_network selected by user {user_id}")
+                return self.start_network_history(user_id, google_sheets_service)
+            elif callback_data.startswith("date_"):
+                date = callback_data.split("_", 1)[1]
+                logging.info(f"handle_callback: date {date} selected by user {user_id}")
+                return self.handle_date_selection(user_id, date, google_sheets_service, data_processor)
+            elif callback_data.startswith("city_"):
+                city = callback_data.split("_", 1)[1]
+                logging.info(f"handle_callback: city {city} selected by user {user_id}")
+                return self.handle_city_selection(user_id, city, google_sheets_service, data_processor)
+            elif callback_data.startswith("network_"):
+                network = callback_data.split("_", 1)[1]
+                logging.info(f"handle_callback: network {network} selected by user {user_id}")
+                return self.handle_network_selection(user_id, network, google_sheets_service, data_processor)
+            elif callback_data.startswith("address_"):
+                address = callback_data.split("_", 1)[1]
+                logging.info(f"handle_callback: address {address} selected by user {user_id}")
+                return self.handle_address_selection(user_id, address, google_sheets_service, data_processor)
+        except Exception as e:
+            logging.error(f"handle_callback: Error processing callback {callback_data} for user {user_id}: {e}")
 
     def get_available_dates(self, google_sheets_service):
         """Получает список доступных дат из Google Sheets"""
+        logging.info("get_available_dates: Start fetching dates from Google Sheets")
+
         morning_df = google_sheets_service.get_sheet_data(Config.MORNING_SHEET_ID, Config.MORNING_SHEET_NAME)
+        logging.info(f"get_available_dates: morning_df loaded with {len(morning_df)} rows")
+
         evening_df = google_sheets_service.get_sheet_data(Config.EVENING_SHEET_ID, Config.EVENING_SHEET_NAME)
+        logging.info(f"get_available_dates: evening_df loaded with {len(evening_df)} rows")
 
         # convert date columns to datetime to avoid .dt accessor error
         morning_df[Config.MORNING_COLUMNS['date']] = pd.to_datetime(morning_df[Config.MORNING_COLUMNS['date']])
@@ -98,6 +118,7 @@ class TelegramBot:
         dates_evening = set(evening_df[Config.EVENING_COLUMNS['date']].dt.date.unique())
 
         available_dates = sorted(list(dates_morning.union(dates_evening)))
+        logging.info(f"get_available_dates: available_dates found {available_dates}")
 
         return available_dates
 
