@@ -167,9 +167,14 @@ class DataProcessor:
         if morning_df.empty:
             return 0
 
-        # Фильтруем утренние отчеты по дате
-        morning_df['date'] = pd.to_datetime(morning_df['date']).dt.date
-        expected = len(morning_df[morning_df['date'] == target_date])
+        # Приводим колонку даты к datetime64 для корректного использования .dt
+        morning_df['date'] = pd.to_datetime(morning_df['date'])
+
+        # Если target_date - datetime.date, конвертируем к pd.Timestamp для сравнения с datetime64
+        if isinstance(target_date, (str, datetime.date)):
+            target_date = pd.to_datetime(target_date)
+
+        expected = len(morning_df[morning_df['date'].dt.date == target_date.date()])
         return expected
 
     def generate_summary_report(self, all_reports, expected_reports, actual_reports):
