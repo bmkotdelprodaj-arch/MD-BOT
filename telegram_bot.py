@@ -24,7 +24,11 @@ class TelegramBot:
         self.user_data = {}
 
     def send_message(self, text, parse_mode="HTML", reply_markup=None, chat_id=None, message_id=None):
-        """Отправляет или редактирует сообщение в Telegram"""
+        """
+        Отправляет или редактирует сообщение в Telegram.
+        Если message_id передан, редактирует сообщение.
+        Иначе - отправляет новое.
+        """
         target_chat_id = chat_id or self.chat_id
         if message_id:
             # Редактируем сообщение
@@ -290,7 +294,7 @@ class TelegramBot:
         elif user_type == "network":
             return self.show_network_selection(user_id, date_obj, google_sheets_service, chat_id)
         else:
-            logger.warning(f"handle_date_selection: Unknown user_type '{user_type}' for user_id")
+            logger.warning(f"handle_date_selection: Unknown user_type '{user_type}' for user {user_id}")
             self.send_message("❌ Неизвестный тип запроса.", chat_id=chat_id)
 
     def show_network_selection(self, user_id, date_obj, google_sheets_service, chat_id):
@@ -423,6 +427,8 @@ class TelegramBot:
             # Фильтруем по городу
             city_reports = [r for r in reports if r['city'] == city]
 
+            logger.info(f"handle_city_selection: Found {len(city_reports)} reports for city '{city}' on {date_obj}")
+
             if not city_reports:
                 self.send_message(f"❌ Нет данных по городу {city} за {date_obj.strftime('%d.%m.%Y')}", chat_id=chat_id)
                 return
@@ -469,7 +475,7 @@ class TelegramBot:
             evening_filtered = evening_df[evening_df[date_col_evening].dt.date == date_obj]
 
             # Обрабатываем отчеты
-            reports = data_processor.process_daily_reports(morning_filtered, evening_df)
+            reports = data_processor.process_daily_reports(morning_filtered, evening_filtered)
 
             # Если это ветка "по магазину" — показываем города в этой сети
             if user_type == "store":
@@ -676,14 +682,9 @@ class TelegramBot:
         message = f"🏪 Магазинов: {summary['stores']}\n"
         message += f"👥 Участников: {summary['total_visitors']}\n\n"
 
-        for cheese in Config.CHEESE_TYPES:
-            message += f"🧀 {cheese}: {summary['cheese_start'][cheese]} начальный остаток\n"
-        message += "\n"
-        for cheese in Config.CHEESE_TYPES:
-            message += f"🧀 {cheese}: {summary['cheese_end'][cheese]} конечный остаток\n"
-        message += "\n"
-        for cheese in Config.CHEESE_TYPES:
-            message += f"🧀 {cheese}: {summary['cheese_sold'][cheese]} продано\n"
+        message += " cheeses_start = report['cheese_data']
+        message += "\n cheeses_end = report['cheese_data']
+        message += "\n cheese_sold = report['cheese_data']
         message += f"\n📦 <b>Всего продано:</b> {summary['total_sales']} шт.\n"
         message += f"🎯 <b>Эффективность:</b> {summary['efficiency']:.1f}%\n"
 
@@ -707,15 +708,9 @@ class TelegramBot:
         # Выводим остатки на начало дня
         for cheese in Config.CHEESE_TYPES:
             data = report['cheese_data'].get(cheese, {'start': 0})
-            message += f" cheeses_start = report['cheese_data']\n"
-        message += "\n"
-        for cheese in Config.CHEESE_TYPES:
-            data = report['cheese_data'].get(cheese, {'end': 0})
-            message += f" cheeses_end = report['cheese_data']\n"
-        message += "\n"
-        for cheese in Config.CHEESE_TYPES:
-            data = report['cheese_data'].get(cheese, {'sold': 0})
-            message += f" cheese_sold = report['cheese_data']\n"
+            message += f" cheeses_start = report['cheese_data']
+        message += "\n cheeses_end = report['cheese_data']
+        message += "\n cheese_sold = report['cheese_data']
         message += f"\n📦 <b>Всего продано:</b> {report['total_sales']} шт.\n"
         message += f"🎯 <b>Эффективность:</b> {report['efficiency']}%\n"
 
