@@ -38,8 +38,11 @@ def webhook():
             callback_query = update['callback_query']
             user_id = callback_query['from']['id']
             callback_data = callback_query['data']
+            # --- НОВОЕ: получаем message_id и chat_id ---
+            message_id = callback_query['message']['message_id']
+            chat_id = callback_query['message']['chat']['id']
 
-            logger.info(f"Callback from user {user_id}: {callback_data}")
+            logger.info(f"Callback from user {user_id} in chat {chat_id}, message {message_id}: {callback_data}")
 
             # Отвечаем на callback query
             requests.post(
@@ -47,25 +50,29 @@ def webhook():
                 json={'callback_query_id': callback_query['id']}
             )
 
-            # Обрабатываем callback
-            telegram_bot.handle_callback(callback_data, user_id, google_sheets_service, data_processor)
+            # --- ИЗМЕНЕНО: передаём message_id и chat_id ---
+            telegram_bot.handle_callback(callback_data, user_id, google_sheets_service, data_processor, message_id, chat_id)
 
         # Обрабатываем текстовые сообщения
         elif 'message' in update:
             message = update['message']
             user_id = message['from']['id']
             text = message.get('text', '')
+            # --- НОВОЕ: получаем chat_id ---
+            chat_id = message['chat']['id']
 
-            logger.info(f"Message from user {user_id}: {text}")
+            logger.info(f"Message from user {user_id} in chat {chat_id}: {text}")
 
             # Обрабатываем команду /start
             if text == '/start':
-                telegram_bot.send_start_menu()
+                # --- ИЗМЕНЕНО: передаём chat_id ---
+                telegram_bot.send_start_menu(chat_id=chat_id)
 
         return jsonify({'status': 'ok'}), 200
 
     except Exception as e:
         logger.error(f"Error processing webhook: {e}")
+        logger.error(traceback.format_exc())  # <-- Добавим трейсбек, если Render не показывает
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/health', methods=['GET'])
