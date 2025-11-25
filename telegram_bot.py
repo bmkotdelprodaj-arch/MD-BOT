@@ -602,9 +602,12 @@ class TelegramBot:
 
 👥 <b>Участников:</b> {report['visitors']}
 
- cheeses_start = report['cheese_data']
-        message += "\n cheeses_end = report['cheese_data']
-        message += "\n cheese_sold = report['cheese_data']
+"""
+
+        message += f"🧀 <b>Остатки на начало дня:</b>\n"
+        for cheese, values in report['cheese_data'].items():
+            message += f"• {cheese} - начало: {values['start']} шт., конец: {values['end']} шт., продано: {values['sold']} шт.\n"
+
         message += f"\n📦 <b>Всего продано:</b> {report['total_sales']} шт.\n"
         message += f"🎯 <b>Эффективность:</b> {report['efficiency']}%\n"
 
