@@ -113,7 +113,7 @@ class TelegramBot:
         try:
             logger.info(f"handle_callback: Processing callback_data '{callback_data}' for user {user_id} in chat {chat_id}, message {message_id}")
             # Обновляем последнее сообщение меню у пользователя
-            if user_id not in self.user_
+            if user_id not in self.user_data:
                 self.user_data[user_id] = {}
             self.user_data[user_id]['last_menu_message_id'] = message_id
 
