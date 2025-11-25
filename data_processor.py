@@ -65,8 +65,10 @@ class DataProcessor:
 
                 evening_address = evening_row['normalized_address']
                 evening_employee = evening_row['normalized_employee']
+                evening_original_address = evening_row[self.config.EVENING_COLUMNS['address']]
+                evening_original_employee = evening_row[self.config.EVENING_COLUMNS['employee_name']]
 
-                logger.debug(f"process_daily_reports: Evening row {idx_e} for {evening_date}, {evening_employee}, {evening_address}")
+                logger.debug(f"process_daily_reports: Evening row {idx_e} for {evening_date}, '{evening_original_employee}' -> '{evening_employee}', '{evening_original_address}' -> '{evening_address}'")
 
                 # Ищем соответствующий утренний отчет
                 morning_match = None
@@ -89,12 +91,19 @@ class DataProcessor:
 
                     morning_address = morning_row['normalized_address']
                     morning_employee = morning_row['normalized_employee']
+                    morning_original_address = morning_row[self.config.MORNING_COLUMNS['address']]
+                    morning_original_employee = morning_row[self.config.MORNING_COLUMNS['employee_name']]
+
+                    logger.debug(f"process_daily_reports:     vs Morning row {idx_m} for {morning_date}, '{morning_original_employee}' -> '{morning_employee}', '{morning_original_address}' -> '{morning_address}'")
 
                     # Проверяем совпадение по дате, сотруднику и адресу
-                    if (morning_date == evening_date and
-                        morning_employee == evening_employee and
-                        self.normalizer.match_addresses(morning_address, evening_address)):
+                    date_match = (morning_date == evening_date)
+                    employee_match = (morning_employee == evening_employee)
+                    address_match = self.normalizer.match_addresses(morning_address, evening_address)
 
+                    logger.debug(f"process_daily_reports:         Date match: {date_match}, Employee match: {employee_match}, Address match: {address_match}")
+
+                    if date_match and employee_match and address_match:
                         logger.debug(f"process_daily_reports: Match found for {idx_m} -> {idx_e} on {morning_date}, {morning_employee}, {morning_address}")
                         morning_match = morning_row
                         break
@@ -110,7 +119,7 @@ class DataProcessor:
                             self.processed_pairs.add(pair_key)
                             logger.info(f"process_daily_reports: Report generated for {report['employee']}, sales: {report['total_sales']}, visitors: {report['visitors']}, city: {report['city']}, network: {report['network']}")
                         else:
-                            logger.warning(f"process_daily_reports: Report generation failed for {pair_key}")
+                            logger.warning(f"process_daily_reports: Report generation failed for {pair_key} (returned None)")
                     else:
                         logger.debug(f"process_daily_reports: Pair {pair_key} already processed, skipping.")
 
@@ -124,6 +133,9 @@ class DataProcessor:
             total_sales_all = sum(r['total_sales'] for r in reports)
             total_visitors_all = sum(r['visitors'] for r in reports)
             logger.info(f"process_daily_reports: Summary - Total Sales: {total_sales_all}, Total Visitors: {total_visitors_all}")
+        else:
+            logger.info(f"process_daily_reports: Summary - Total Sales: 0, Total Visitors: 0 (no reports generated)")
+
         return reports
 
     def _generate_detailed_report(self, morning_row, evening_row):
@@ -133,8 +145,9 @@ class DataProcessor:
             sales_data = {}
             total_sales = 0
 
-            logger.debug(f"_generate_detailed_report: Processing morning_row: {morning_row.to_dict() if hasattr(morning_row, 'to_dict') else 'N/A'}")
-            logger.debug(f"_generate_detailed_report: Processing evening_row: {evening_row.to_dict() if hasattr(evening_row, 'to_dict') else 'N/A'}")
+            logger.debug(f"_generate_detailed_report: Processing morning_row and evening_row...")
+            logger.debug(f"_generate_detailed_report: Morning original data: {morning_row[self.config.MORNING_COLUMNS['employee_name']]}, {morning_row[self.config.MORNING_COLUMNS['address']]}")
+            logger.debug(f"_generate_detailed_report: Evening original data: {evening_row[self.config.EVENING_COLUMNS['employee_name']]}, {evening_row[self.config.EVENING_COLUMNS['address']]}")
 
             for cheese in self.config.CHEESE_TYPES:
                 start_col = self.config.MORNING_COLUMNS['cheese_start'][cheese]
@@ -151,7 +164,13 @@ class DataProcessor:
 
                 logger.debug(f"_generate_detailed_report: Cheese {cheese} - Start converted: {start_qty}, End converted: {end_qty}")
 
+                if start_qty is None or end_qty is None:
+                    logger.warning(f"_generate_detailed_report: Start or End quantity is None for {cheese}, skipping report generation.")
+                    return None
+
                 sold = max(0, start_qty - end_qty)  # Защита от отрицательных значений
+
+                logger.debug(f"_generate_detailed_report: Cheese {cheese} - Sold calculated: {sold}")
 
                 sales_data[cheese] = {
                     'start': start_qty,
@@ -165,6 +184,10 @@ class DataProcessor:
             logger.debug(f"_generate_detailed_report: Visitors raw: '{visitors_raw}'")
             visitors = self._safe_int_convert(visitors_raw)
             logger.debug(f"_generate_detailed_report: Visitors converted: {visitors}")
+
+            if visitors is None:
+                logger.warning(f"_generate_detailed_report: Visitors is None, skipping report generation.")
+                return None
 
             conversion = total_sales / visitors if visitors > 0 else 0
 
