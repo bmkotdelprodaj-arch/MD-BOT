@@ -11,7 +11,7 @@ class DataProcessor:
         self.config = Config()
         self.normalizer = AddressNormalizer()
         self.processed_pairs = set()  # Для отслеживания обработанных пар
-        
+
     def process_daily_reports(self, morning_df, evening_df):
         """
         Обрабатывает пары отчетов и возвращает готовые к отправке отчеты
@@ -34,12 +34,16 @@ class DataProcessor:
             lambda x: self._normalize_employee_name(str(x))
         )
 
+        logger.info(f"process_daily_reports: morning_df count = {len(morning_df)}, evening_df count = {len(evening_df)}")
+
         # Группируем по дате и адресу
         for _, evening_row in evening_df.iterrows():
             try:
                 evening_date = pd.to_datetime(evening_row[self.config.EVENING_COLUMNS['date']]).date()
                 evening_address = evening_row['normalized_address']
                 evening_employee = evening_row['normalized_employee']
+
+                logger.debug(f"process_daily_reports: Evening row for {evening_date}, {evening_employee}, {evening_address}")
 
                 # Ищем соответствующий утренний отчет
                 morning_match = None
@@ -54,6 +58,7 @@ class DataProcessor:
                         morning_employee == evening_employee and
                         self.normalizer.match_addresses(morning_address, evening_address)):
 
+                        logger.debug(f"process_daily_reports: Match found for {morning_date}, {morning_employee}, {morning_address}")
                         morning_match = morning_row
                         break
 
@@ -66,13 +71,19 @@ class DataProcessor:
                         if report:  # Проверяем, что отчет сгенерирован успешно
                             reports.append(report)
                             self.processed_pairs.add(pair_key)
+                            logger.debug(f"process_daily_reports: Report generated for {report['employee']}, sales: {report['total_sales']}, visitors: {report['visitors']}")
+                        else:
+                            logger.warning(f"process_daily_reports: Report generation failed for {pair_key}")
+                    else:
+                        logger.debug(f"process_daily_reports: Pair {pair_key} already processed, skipping.")
 
             except Exception as e:
-                logger.error(f"Ошибка обработки вечернего отчета: {e}")
+                logger.error(f"process_daily_reports: Ошибка обработки вечернего отчета: {e}")
                 continue
 
+        logger.info(f"process_daily_reports: Total reports generated = {len(reports)}")
         return reports
-    
+
     def _generate_detailed_report(self, morning_row, evening_row):
         """Генерирует детальный отчет по одному магазину"""
         try:
@@ -116,7 +127,12 @@ class DataProcessor:
             else:
                 efficiency = 0
 
-            return {
+            # Проверяем, что все значения числовые и не None
+            if any(v is None for v in [total_sales, visitors, efficiency]):
+                logger.warning(f"_generate_detailed_report: Invalid numeric value found: total_sales={total_sales}, visitors={visitors}, efficiency={efficiency}")
+                return None
+
+            report = {
                 'date': pd.to_datetime(evening_row[self.config.EVENING_COLUMNS['date']]).strftime('%d.%m.%Y'),
                 'city': evening_row[self.config.EVENING_COLUMNS['city']],
                 'network': evening_row[self.config.EVENING_COLUMNS['network_name']],
@@ -127,22 +143,55 @@ class DataProcessor:
                 'efficiency': round(efficiency, 1),
                 'normalized_address': evening_row['normalized_address']
             }
+
+            return report
         except Exception as e:
-            logger.error(f"Ошибка генерации детального отчета: {e}")
+            logger.error(f"_generate_detailed_report: Ошибка генерации детального отчета: {e}")
             return None
 
     def _safe_int_convert(self, value):
         """Безопасное преобразование значения в int с обработкой NaN и текстовых значений"""
         try:
-            if pd.isna(value) or value == '' or str(value).lower() in ['nan', 'нет', 'нету', 'не знаю', 'не указано']:
+            if pd.isna(value) or value == '' or str(value).lower() in ['nan', 'нет', 'нету', 'не знаю', 'не указано', 'не было этого сыра', 'не было голландского сыра в магазине', 'отсутствуют']:
                 return 0
             # Если это строка, пытаемся извлечь числа
             if isinstance(value, str):
                 import re
+                # Попробуем найти приближённые числа (≈60) и диапазоны (20-30)
+                # Ищем все числа в строке
                 numbers = re.findall(r'\d+', value)
-                return int(numbers[0]) if numbers else 0
+                if numbers:
+                    # Если это диапазон (например, "20-30"), возьмём среднее
+                    if '-' in value or '—' in value or '–' in value:
+                        # Попробуем найти диапазон
+                        range_match = re.search(r'(\d+)\s*[-—–]\s*(\d+)', value)
+                        if range_match:
+                            start = int(range_match.group(1))
+                            end = int(range_match.group(2))
+                            return int((start + end) / 2)
+                    # Иначе просто первое найденное число (например, для "≈60", "При мерно 37")
+                    return int(numbers[0])
+                # Если не нашли чисел, но строка содержит "много", "много людей", "более 20" и т.п.
+                lower_text = value.lower()
+                if 'много' in lower_text:
+                    # Можно вернуть условное "много", например 100, или 50, или None -> 0
+                    # Пока вернём 50 как среднее
+                    return 50
+                if 'более' in lower_text or 'больше' in lower_text:
+                    more_match = re.search(r'(\d+)', lower_text)
+                    if more_match:
+                        base_num = int(more_match.group(1))
+                        # "Более 20" -> вернём 20 + 10 (или какую-то эвристику)
+                        return base_num + 10
+                if 'менее' in lower_text or 'меньше' in lower_text:
+                    less_match = re.search(r'(\d+)', lower_text)
+                    if less_match:
+                        base_num = int(less_match.group(1))
+                        return max(0, base_num - 10)
+
             return int(float(value))
         except (ValueError, TypeError):
+            logger.warning(f"_safe_int_convert: Failed to convert value '{value}' to int, returning 0.")
             return 0
 
     def _normalize_employee_name(self, name):
@@ -161,7 +210,7 @@ class DataProcessor:
         normalized = re.sub(r'[^\w\s-]', '', normalized)
 
         return normalized.strip()
-    
+
     def get_expected_reports_for_day(self, morning_df, evening_df, target_date):
         """Получает ожидаемое количество отчетов за день из утренних анкет"""
         if morning_df.empty:
