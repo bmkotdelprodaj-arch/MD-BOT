@@ -640,7 +640,7 @@ class TelegramBot:
             self.send_message("❌ Ошибка при формировании отчета.", chat_id=chat_id)
 
     def aggregate_reports(self, reports):
-        """Агрегирует список отчетов в один общий"""
+        """Агрегирует список отчетов в один общий + находит лучших"""
         if not reports:
             return {
                 'cheese_start': {cheese: 0 for cheese in Config.CHEESE_TYPES},
@@ -649,7 +649,11 @@ class TelegramBot:
                 'total_sales': 0,
                 'total_visitors': 0,
                 'efficiency': 0.0,
-                'stores': 0
+                'stores': 0,
+                # Добавим поля для "лучших"
+                'best_city': None,
+                'best_network': None,
+                'best_employee': None
             }
 
         total = {
@@ -662,6 +666,11 @@ class TelegramBot:
             'stores': len(reports)
         }
 
+        # Словари для подсчёта продаж по городам, сетям, сотрудникам
+        city_sales = {}
+        network_sales = {}
+        employee_sales = {}
+
         for report in reports:
             total['total_sales'] += report['total_sales']
             total['total_visitors'] += report.get('visitors', 0)
@@ -671,9 +680,30 @@ class TelegramBot:
                 total['cheese_end'][cheese] += data['end']
                 total['cheese_sold'][cheese] += data['sold']
 
+            # Считаем продажи по категориям
+            city = report['city']
+            network = report['network']
+            employee = report['employee']
+            sales = report['total_sales']
+
+            city_sales[city] = city_sales.get(city, 0) + sales
+            network_sales[network] = network_sales.get(network, 0) + sales
+            employee_sales[employee] = employee_sales.get(employee, 0) + sales
+
         # Средняя эффективность
         if total['stores'] > 0:
             total['efficiency'] = sum(r['efficiency'] for r in reports) / total['stores']
+
+        # Находим "лучших"
+        if city_sales:
+            best_city_name, best_city_sales = max(city_sales.items(), key=lambda x: x[1])
+            total['best_city'] = (best_city_name, best_city_sales)
+        if network_sales:
+            best_network_name, best_network_sales = max(network_sales.items(), key=lambda x: x[1])
+            total['best_network'] = (best_network_name, best_network_sales)
+        if employee_sales:
+            best_employee_name, best_employee_sales = max(employee_sales.items(), key=lambda x: x[1])
+            total['best_employee'] = (best_employee_name, best_employee_sales)
 
         return total
 
@@ -682,11 +712,19 @@ class TelegramBot:
         message = f"🏪 Магазинов: {summary['stores']}\n"
         message += f"👥 Участников: {summary['total_visitors']}\n\n"
 
-        message += "🧀 Продажи по сырам:\n"
-        for cheese in Config.CHEESE_TYPES:
-            message += f"  {cheese} - Начало: {summary['cheese_start'].get(cheese, 0)}, Конец: {summary['cheese_end'].get(cheese, 0)}, Продано: {summary['cheese_sold'].get(cheese, 0)}\n"
+        message += " cheeses_start = report['cheese_data']
+        message += "\n cheeses_end = report['cheese_data']
+        message += "\n cheese_sold = report['cheese_data']
         message += f"\n📦 <b>Всего продано:</b> {summary['total_sales']} шт.\n"
         message += f"🎯 <b>Эффективность:</b> {summary['efficiency']:.1f}%\n"
+
+        # Выводим "лучших"
+        if summary['best_city']:
+            message += f"\n🏆 Лучший город: {summary['best_city'][0]} - {summary['best_city'][1]} шт.\n"
+        if summary['best_network']:
+            message += f"🏆 Лучшая сеть: {summary['best_network'][0]} - {summary['best_network'][1]} шт.\n"
+        if summary['best_employee']:
+            message += f"🏆 Лучший сотрудник: {summary['best_employee'][0]} - {summary['best_employee'][1]} шт.\n"
 
         return message
 
@@ -707,8 +745,10 @@ class TelegramBot:
 
         # Выводим остатки на начало дня
         for cheese in Config.CHEESE_TYPES:
-            data = report['cheese_data'].get(cheese, {'start': 0, 'end': 0, 'sold': 0})
-            message += f"🧀 {cheese}: Начало: {data.get('start', 0)}, Конец: {data.get('end', 0)}, Продано: {data.get('sold', 0)}\n"
+            data = report['cheese_data'].get(cheese, {'start': 0})
+            message += f" cheeses_start = report['cheese_data']
+        message += "\n cheeses_end = report['cheese_data']
+        message += "\n cheese_sold = report['cheese_data']
         message += f"\n📦 <b>Всего продано:</b> {report['total_sales']} шт.\n"
         message += f"🎯 <b>Эффективность:</b> {report['efficiency']}%\n"
 
