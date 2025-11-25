@@ -90,6 +90,10 @@ class TelegramBot:
         morning_df = google_sheets_service.get_sheet_data(Config.MORNING_SHEET_ID, Config.MORNING_SHEET_NAME)
         evening_df = google_sheets_service.get_sheet_data(Config.EVENING_SHEET_ID, Config.EVENING_SHEET_NAME)
 
+        # convert date columns to datetime to avoid .dt accessor error
+        morning_df[Config.MORNING_COLUMNS['date']] = pd.to_datetime(morning_df[Config.MORNING_COLUMNS['date']])
+        evening_df[Config.EVENING_COLUMNS['date']] = pd.to_datetime(evening_df[Config.EVENING_COLUMNS['date']])
+
         dates_morning = set(morning_df[Config.MORNING_COLUMNS['date']].dt.date.unique())
         dates_evening = set(evening_df[Config.EVENING_COLUMNS['date']].dt.date.unique())
 
