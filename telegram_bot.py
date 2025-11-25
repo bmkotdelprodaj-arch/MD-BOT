@@ -113,7 +113,7 @@ class TelegramBot:
         try:
             logger.info(f"handle_callback: Processing callback_data '{callback_data}' for user {user_id} in chat {chat_id}, message {message_id}")
             # Обновляем последнее сообщение меню у пользователя
-            if user_id not in self.user_data:
+            if user_id not in self.user_
                 self.user_data[user_id] = {}
             self.user_data[user_id]['last_menu_message_id'] = message_id
 
@@ -318,6 +318,10 @@ class TelegramBot:
             morning_filtered = morning_df[morning_df[date_col_morning].dt.date == date_obj]
             evening_filtered = evening_df[evening_df[date_col_evening].dt.date == date_obj]
 
+            # --- ДОБАВИМ КОПИИ ---
+            morning_filtered = morning_filtered.copy()
+            evening_filtered = evening_filtered.copy()
+
             # Объединяем уникальные значения сетей из обеих таблиц
             all_networks = set()
             if not morning_filtered.empty:
@@ -366,6 +370,10 @@ class TelegramBot:
             # Фильтрация по дате
             morning_filtered = morning_df[morning_df[date_col_morning].dt.date == date_obj]
             evening_filtered = evening_df[evening_df[date_col_evening].dt.date == date_obj]
+
+            # --- ДОБАВИМ КОПИИ ---
+            morning_filtered = morning_filtered.copy()
+            evening_filtered = evening_filtered.copy()
 
             # Объединяем уникальные значения городов
             all_cities = set()
@@ -421,6 +429,10 @@ class TelegramBot:
             morning_filtered = morning_df[morning_df[date_col_morning].dt.date == date_obj]
             evening_filtered = evening_df[evening_df[date_col_evening].dt.date == date_obj]
 
+            # --- ДОБАВИМ КОПИИ ---
+            morning_filtered = morning_filtered.copy()
+            evening_filtered = evening_filtered.copy()
+
             # Обрабатываем отчеты
             reports = data_processor.process_daily_reports(morning_filtered, evening_filtered)
 
@@ -473,6 +485,10 @@ class TelegramBot:
             # Фильтрация по дате
             morning_filtered = morning_df[morning_df[date_col_morning].dt.date == date_obj]
             evening_filtered = evening_df[evening_df[date_col_evening].dt.date == date_obj]
+
+            # --- ДОБАВИМ КОПИИ ---
+            morning_filtered = morning_filtered.copy()
+            evening_filtered = evening_filtered.copy()
 
             # Обрабатываем отчеты
             reports = data_processor.process_daily_reports(morning_filtered, evening_filtered)
@@ -558,6 +574,10 @@ class TelegramBot:
             morning_filtered = morning_df[morning_df[date_col_morning].dt.date == date_obj]
             evening_filtered = evening_df[evening_df[date_col_evening].dt.date == date_obj]
 
+            # --- ДОБАВИМ КОПИИ ---
+            morning_filtered = morning_filtered.copy()
+            evening_filtered = evening_filtered.copy()
+
             # Обрабатываем отчеты
             reports = data_processor.process_daily_reports(morning_filtered, evening_filtered)
 
@@ -604,6 +624,10 @@ class TelegramBot:
             # Фильтрация по дате
             morning_filtered = morning_df[morning_df[date_col_morning].dt.date == date_obj]
             evening_filtered = evening_df[evening_df[date_col_evening].dt.date == date_obj]
+
+            # --- ДОБАВИМ КОПИИ ---
+            morning_filtered = morning_filtered.copy()
+            evening_filtered = evening_filtered.copy()
 
             if morning_filtered.empty and evening_filtered.empty:
                 self.send_message(f"❌ Нет данных за {date_obj.strftime('%d.%m.%Y')}", chat_id=chat_id)
@@ -712,18 +736,9 @@ class TelegramBot:
         message = f"🏪 Магазинов: {summary['stores']}\n"
         message += f"👥 Участников: {summary['total_visitors']}\n\n"
 
-        message += "🧀 Остаток на начало дня:\n"
-        for cheese, start_val in summary['cheese_start'].items():
-            message += f"  - {cheese}: {start_val}\n"
-
-        message += "\n🧀 Остаток на конец дня:\n"
-        for cheese, end_val in summary['cheese_end'].items():
-            message += f"  - {cheese}: {end_val}\n"
-
-        message += "\n🧀 Продано:\n"
-        for cheese, sold_val in summary['cheese_sold'].items():
-            message += f"  - {cheese}: {sold_val}\n"
-
+        message += " cheeses_start = report['cheese_data']
+        message += "\n cheeses_end = report['cheese_data']
+        message += "\n cheese_sold = report['cheese_data']
         message += f"\n📦 <b>Всего продано:</b> {summary['total_sales']} шт.\n"
         message += f"🎯 <b>Эффективность:</b> {summary['efficiency']:.1f}%\n"
 
@@ -753,21 +768,11 @@ class TelegramBot:
 """
 
         # Выводим остатки на начало дня
-        message += "🧀 Остаток на начало дня:\n"
         for cheese in Config.CHEESE_TYPES:
-            data = report['cheese_data'].get(cheese, {'start': 0, 'end': 0, 'sold': 0})
-            message += f"  - {cheese}: {data['start']}\n"
-
-        message += "\n🧀 Остаток на конец дня:\n"
-        for cheese in Config.CHEESE_TYPES:
-            data = report['cheese_data'].get(cheese, {'start': 0, 'end': 0, 'sold': 0})
-            message += f"  - {cheese}: {data['end']}\n"
-
-        message += "\n🧀 Продано:\n"
-        for cheese in Config.CHEESE_TYPES:
-            data = report['cheese_data'].get(cheese, {'start': 0, 'end': 0, 'sold': 0})
-            message += f"  - {cheese}: {data['sold']}\n"
-
+            data = report['cheese_data'].get(cheese, {'start': 0})
+            message += f" cheeses_start = report['cheese_data']
+        message += "\n cheeses_end = report['cheese_data']
+        message += "\n cheese_sold = report['cheese_data']
         message += f"\n📦 <b>Всего продано:</b> {report['total_sales']} шт.\n"
         message += f"🎯 <b>Эффективность:</b> {report['efficiency']}%\n"
 

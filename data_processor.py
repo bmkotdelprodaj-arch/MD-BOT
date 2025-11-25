@@ -3,6 +3,7 @@ from datetime import datetime, date
 from config import Config
 from address_normalizer import AddressNormalizer
 import logging
+import re  # <-- Добавим регулярные выражения
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +19,13 @@ class DataProcessor:
         """
         reports = []
 
-        # Нормализуем адреса в обоих датафреймах
+        # --- ВАЖНО: Сделаем копии, чтобы избежать SettingWithCopyWarning ---
+        morning_df = morning_df.copy()
+        evening_df = evening_df.copy()
+
         logger.info(f"process_daily_reports: Starting with morning_df shape: {morning_df.shape}, evening_df shape: {evening_df.shape}")
+
+        # Нормализуем адреса в обоих датафреймах
         morning_df['normalized_address'] = morning_df[self.config.MORNING_COLUMNS['address']].apply(
             lambda x: self.normalizer.normalize(str(x))
         )
@@ -37,20 +43,50 @@ class DataProcessor:
 
         logger.info(f"process_daily_reports: morning_df count = {len(morning_df)}, evening_df count = {len(evening_df)}")
 
-        # Группируем по дате и адресу
-        for idx, evening_row in evening_df.iterrows():
+        # Проходим по вечерним отчётам и ищем утренние
+        for idx_e, evening_row in evening_df.iterrows():
             try:
-                evening_date = pd.to_datetime(evening_row[self.config.EVENING_COLUMNS['date']]).date()
+                # Конвертируем дату в date объект
+                evening_date_raw = evening_row[self.config.EVENING_COLUMNS['date']]
+                # Если уже datetime, просто извлекаем date
+                if pd.api.types.is_datetime64_any_dtype(evening_df[self.config.EVENING_COLUMNS['date']]):
+                    evening_date = pd.to_datetime(evening_date_raw).date()
+                else:
+                    # Если строка, парсим
+                    try:
+                        parsed_date = datetime.strptime(str(evening_date_raw), '%m/%d/%Y').date()
+                    except ValueError:
+                        try:
+                            parsed_date = pd.to_datetime(evening_date_raw).date()
+                        except:
+                            logger.warning(f"process_daily_reports: Cannot parse evening date '{evening_date_raw}' for row {idx_e}, skipping.")
+                            continue
+                    evening_date = parsed_date
+
                 evening_address = evening_row['normalized_address']
                 evening_employee = evening_row['normalized_employee']
 
-                logger.debug(f"process_daily_reports: Evening row {idx} for {evening_date}, {evening_employee}, {evening_address}")
+                logger.debug(f"process_daily_reports: Evening row {idx_e} for {evening_date}, {evening_employee}, {evening_address}")
 
                 # Ищем соответствующий утренний отчет
                 morning_match = None
 
                 for idx_m, morning_row in morning_df.iterrows():
-                    morning_date = pd.to_datetime(morning_row[self.config.MORNING_COLUMNS['date']]).date()
+                    # Конвертируем дату утреннего отчёта
+                    morning_date_raw = morning_row[self.config.MORNING_COLUMNS['date']]
+                    if pd.api.types.is_datetime64_any_dtype(morning_df[self.config.MORNING_COLUMNS['date']]):
+                        morning_date = pd.to_datetime(morning_date_raw).date()
+                    else:
+                        try:
+                            parsed_date = datetime.strptime(str(morning_date_raw), '%m/%d/%Y').date()
+                        except ValueError:
+                            try:
+                                parsed_date = pd.to_datetime(morning_date_raw).date()
+                            except:
+                                logger.warning(f"process_daily_reports: Cannot parse morning date '{morning_date_raw}' for row {idx_m}, skipping.")
+                                continue
+                        morning_date = parsed_date
+
                     morning_address = morning_row['normalized_address']
                     morning_employee = morning_row['normalized_employee']
 
@@ -59,7 +95,7 @@ class DataProcessor:
                         morning_employee == evening_employee and
                         self.normalizer.match_addresses(morning_address, evening_address)):
 
-                        logger.debug(f"process_daily_reports: Match found for {idx_m} -> {idx} on {morning_date}, {morning_employee}, {morning_address}")
+                        logger.debug(f"process_daily_reports: Match found for {idx_m} -> {idx_e} on {morning_date}, {morning_employee}, {morning_address}")
                         morning_match = morning_row
                         break
 
@@ -79,7 +115,7 @@ class DataProcessor:
                         logger.debug(f"process_daily_reports: Pair {pair_key} already processed, skipping.")
 
             except Exception as e:
-                logger.error(f"process_daily_reports: Ошибка обработки вечернего отчета (index {idx}): {e}", exc_info=True)
+                logger.error(f"process_daily_reports: Ошибка обработки вечернего отчета (index {idx_e}): {e}", exc_info=True)
                 continue
 
         logger.info(f"process_daily_reports: Total reports generated = {len(reports)}")
@@ -108,10 +144,12 @@ class DataProcessor:
                 start_qty_raw = morning_row.get(start_col, 0)
                 end_qty_raw = evening_row.get(end_col, 0)
 
+                logger.debug(f"_generate_detailed_report: Cheese {cheese} - Start raw: '{start_qty_raw}', End raw: '{end_qty_raw}'")
+
                 start_qty = self._safe_int_convert(start_qty_raw)
                 end_qty = self._safe_int_convert(end_qty_raw)
 
-                logger.debug(f"_generate_detailed_report: Cheese {cheese} - Start raw: '{start_qty_raw}', End raw: '{end_qty_raw}', Start converted: {start_qty}, End converted: {end_qty}")
+                logger.debug(f"_generate_detailed_report: Cheese {cheese} - Start converted: {start_qty}, End converted: {end_qty}")
 
                 sold = max(0, start_qty - end_qty)  # Защита от отрицательных значений
 
@@ -124,8 +162,9 @@ class DataProcessor:
 
             # Вычисляем эффективность
             visitors_raw = evening_row.get(self.config.EVENING_COLUMNS['visitors'], 0)
+            logger.debug(f"_generate_detailed_report: Visitors raw: '{visitors_raw}'")
             visitors = self._safe_int_convert(visitors_raw)
-            logger.debug(f"_generate_detailed_report: Visitors raw: '{visitors_raw}', Converted: {visitors}")
+            logger.debug(f"_generate_detailed_report: Visitors converted: {visitors}")
 
             conversion = total_sales / visitors if visitors > 0 else 0
 
@@ -169,55 +208,85 @@ class DataProcessor:
             return None
 
     def _safe_int_convert(self, value):
-        """Безопасное преобразование значения в int с обработкой NaN и текстовых значений"""
+        """Безопасное преобразование значения в int с обработкой NaN, текстовых значений, диапазонов и приближённых чисел"""
         try:
-            if pd.isna(value) or value == '' or str(value).lower() in ['nan', 'нет', 'нету', 'не знаю', 'не указано', 'не было этого сыра', 'не было голландского сыра в магазине', 'отсутствуют']:
+            if pd.isna(value) or value == '' or str(value).lower() in ['nan', 'нет', 'нету', 'не знаю', 'не указано', 'не было этого сыра', 'не было голландского сыра в магазине', 'отсутствуют', 'не было на продаже', 'не было на продажу']:
                 logger.debug(f"_safe_int_convert: Returning 0 for NaN/empty/not_found: '{value}'")
                 return 0
             # Если это строка, пытаемся извлечь числа
             if isinstance(value, str):
-                import re
-                # Попробуем найти приближённые числа (≈60) и диапазоны (20-30)
-                # Ищем все числа в строке
+                # Приводим к нижнему регистру для проверки
+                lower_val = value.lower().strip()
+                # Проверяем на "все продано", "все ушло" и т.п.
+                if 'все' in lower_val and ('продано' in lower_val or 'ушло' in lower_val or 'разобрали' in lower_val):
+                    # Пытаемся найти начальный остаток из строки типа "было 10, все продано"
+                    numbers_in_str = re.findall(r'\d+', value)
+                    if numbers_in_str:
+                        initial_stock = int(numbers_in_str[0]) # Берём первое найденное число как начальный остаток
+                        logger.debug(f"_safe_int_convert: 'Все продано' detected, returning initial stock: {initial_stock} from '{value}'")
+                        return initial_stock
+                    else:
+                        logger.debug(f"_safe_int_convert: 'Все продано' detected but no initial stock found, returning 0 from '{value}'")
+                        return 0
+                # Проверяем на "не было", "отсутствует" и т.п.
+                if 'не ' in lower_val and ('было' in lower_val or 'оказалось' in lower_val):
+                    logger.debug(f"_safe_int_convert: 'Не было' detected, returning 0 from '{value}'")
+                    return 0
+                # Ищем приближённые числа (≈60, примерно 30, ~45)
+                approx_match = re.search(r'[≈~∼~∼~]\s*(\d+)|примерно\s+(\d+)|около\s+(\d+)|порядка\s+(\d+)', value, re.IGNORECASE)
+                if approx_match:
+                    found_num = next(filter(None, approx_match.groups()), None)
+                    if found_num:
+                        result = int(found_num)
+                        logger.debug(f"_safe_int_convert: Approximate number '{value}' -> {result}")
+                        return result
+                # Ищем диапазоны (20-30, 15 -- 25, 10 до 20)
+                range_match = re.search(r'(\d+)\s*[-–—−]\s*(\d+)|(\d+)\s+до\s+(\d+)', value, re.IGNORECASE)
+                if range_match:
+                    g = range_match.groups()
+                    if g[0] is not None and g[1] is not None:
+                        start, end = int(g[0]), int(g[1])
+                    elif g[2] is not None and g[3] is not None:
+                        start, end = int(g[2]), int(g[3])
+                    else:
+                        logger.warning(f"_safe_int_convert: Range regex matched but groups are invalid in '{value}'")
+                        return 0
+                    result = int((start + end) / 2)
+                    logger.debug(f"_safe_int_convert: Range '{value}' -> {start}, {end} -> {result}")
+                    return result
+                # Ищем все числа в строке (для случаев "Много", "20-30 человек", "≈50")
                 numbers = re.findall(r'\d+', value)
                 if numbers:
-                    # Если это диапазон (например, "20-30"), возьмём среднее
-                    if '-' in value or '—' in value or '–' in value:
-                        # Попробуем найти диапазон
-                        range_match = re.search(r'(\d+)\s*[-—–]\s*(\d+)', value)
-                        if range_match:
-                            start = int(range_match.group(1))
-                            end = int(range_match.group(2))
-                            result = int((start + end) / 2)
-                            logger.debug(f"_safe_int_convert: Range '{value}' -> {start}, {end} -> {result}")
-                            return result
-                    # Иначе просто первое найденное число (например, для "≈60", "При мерно 37")
+                    # Берём первое найденное число как самое вероятное
                     result = int(numbers[0])
-                    logger.debug(f"_safe_int_convert: String '{value}' -> number {result}")
+                    logger.debug(f"_safe_int_convert: String '{value}' -> first number {result}")
                     return result
                 # Если не нашли чисел, но строка содержит "много", "много людей", "более 20" и т.п.
-                lower_text = value.lower()
-                if 'много' in lower_text:
+                if 'много' in lower_val:
                     # Можно вернуть условное "много", например 100, или 50, или None -> 0
                     # Пока вернём 50 как среднее
                     logger.debug(f"_safe_int_convert: String '{value}' -> 'много' -> 50")
                     return 50
-                if 'более' in lower_text or 'больше' in lower_text:
-                    more_match = re.search(r'(\d+)', lower_text)
+                if 'более' in lower_val or 'больше' in lower_val:
+                    more_match = re.search(r'(\d+)', lower_val)
                     if more_match:
                         base_num = int(more_match.group(1))
                         # "Более 20" -> вернём 20 + 10 (или какую-то эвристику)
                         result = base_num + 10
                         logger.debug(f"_safe_int_convert: String '{value}' -> 'более {base_num}' -> {result}")
                         return result
-                if 'менее' in lower_text or 'меньше' in lower_text:
-                    less_match = re.search(r'(\d+)', lower_text)
+                if 'менее' in lower_val or 'меньше' in lower_val:
+                    less_match = re.search(r'(\d+)', lower_val)
                     if less_match:
                         base_num = int(less_match.group(1))
                         result = max(0, base_num - 10)
                         logger.debug(f"_safe_int_convert: String '{value}' -> 'менее {base_num}' -> {result}")
                         return result
+                # Если строка не содержит известных паттернов, возвращаем 0
+                logger.debug(f"_safe_int_convert: String '{value}' does not match any known pattern, returning 0")
+                return 0
 
+            # Если не строка и не NaN, пытаемся преобразовать как обычно
             result = int(float(value))
             logger.debug(f"_safe_int_convert: Value '{value}' -> number {result}")
             return result
@@ -234,7 +303,6 @@ class DataProcessor:
         normalized = str(name).lower().strip()
 
         # Убираем лишние пробелы между словами
-        import re
         normalized = re.sub(r'\s+', ' ', normalized)
 
         # Убираем знаки препинания, кроме дефиса в фамилиях
@@ -248,13 +316,20 @@ class DataProcessor:
             return 0
 
         # Приводим колонку даты к datetime64 для корректного использования .dt
-        morning_df['date'] = pd.to_datetime(morning_df['date'])
+        morning_df_local = morning_df.copy()
+        date_col = self.config.MORNING_COLUMNS['date']
+        if not pd.api.types.is_datetime64_any_dtype(morning_df_local[date_col]):
+            # Если строка, парсим
+            try:
+                morning_df_local[date_col] = pd.to_datetime(morning_df_local[date_col], format='%m/%d/%Y', errors='coerce')
+            except:
+                morning_df_local[date_col] = pd.to_datetime(morning_df_local[date_col], errors='coerce')
 
         # Если target_date - datetime.date, конвертируем к pd.Timestamp для сравнения с datetime64
         if isinstance(target_date, (str, datetime.date)):
             target_date = pd.to_datetime(target_date)
 
-        expected = len(morning_df[morning_df['date'].dt.date == target_date.date()])
+        expected = len(morning_df_local[morning_df_local[date_col].dt.date == target_date.date()])
         return expected
 
     def generate_summary_report(self, all_reports, expected_reports, actual_reports):
