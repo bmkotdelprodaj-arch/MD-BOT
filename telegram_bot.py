@@ -712,9 +712,18 @@ class TelegramBot:
         message = f"🏪 Магазинов: {summary['stores']}\n"
         message += f"👥 Участников: {summary['total_visitors']}\n\n"
 
-        message += " cheeses_start = report['cheese_data']
-        message += "\n cheeses_end = report['cheese_data']
-        message += "\n cheese_sold = report['cheese_data']
+        message += "🧀 Остаток на начало дня:\n"
+        for cheese, start_val in summary['cheese_start'].items():
+            message += f"  - {cheese}: {start_val}\n"
+
+        message += "\n🧀 Остаток на конец дня:\n"
+        for cheese, end_val in summary['cheese_end'].items():
+            message += f"  - {cheese}: {end_val}\n"
+
+        message += "\n🧀 Продано:\n"
+        for cheese, sold_val in summary['cheese_sold'].items():
+            message += f"  - {cheese}: {sold_val}\n"
+
         message += f"\n📦 <b>Всего продано:</b> {summary['total_sales']} шт.\n"
         message += f"🎯 <b>Эффективность:</b> {summary['efficiency']:.1f}%\n"
 
@@ -744,11 +753,21 @@ class TelegramBot:
 """
 
         # Выводим остатки на начало дня
+        message += "🧀 Остаток на начало дня:\n"
         for cheese in Config.CHEESE_TYPES:
-            data = report['cheese_data'].get(cheese, {'start': 0})
-            message += f" cheeses_start = report['cheese_data']
-        message += "\n cheeses_end = report['cheese_data']
-        message += "\n cheese_sold = report['cheese_data']
+            data = report['cheese_data'].get(cheese, {'start': 0, 'end': 0, 'sold': 0})
+            message += f"  - {cheese}: {data['start']}\n"
+
+        message += "\n🧀 Остаток на конец дня:\n"
+        for cheese in Config.CHEESE_TYPES:
+            data = report['cheese_data'].get(cheese, {'start': 0, 'end': 0, 'sold': 0})
+            message += f"  - {cheese}: {data['end']}\n"
+
+        message += "\n🧀 Продано:\n"
+        for cheese in Config.CHEESE_TYPES:
+            data = report['cheese_data'].get(cheese, {'start': 0, 'end': 0, 'sold': 0})
+            message += f"  - {cheese}: {data['sold']}\n"
+
         message += f"\n📦 <b>Всего продано:</b> {report['total_sales']} шт.\n"
         message += f"🎯 <b>Эффективность:</b> {report['efficiency']}%\n"
 
