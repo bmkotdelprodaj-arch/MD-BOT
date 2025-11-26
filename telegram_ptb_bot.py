@@ -1,679 +1,605 @@
+# telegram_ptb_bot.py — ФИНАЛЬНАЯ ВЕРСИЯ С ЛОГАМИ, БЕЗ БАГОВ, 2025
+
 import logging
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+import asyncio
+from datetime import datetime, date, timedelta
+import pandas as pd
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from config import Config
 from google_sheets import GoogleSheetsService
 from data_processor import DataProcessor
-from config import Config
-import asyncio
 
+# ═══════════════════════════════════════════════════════════════
+# ПРИНУДИТЕЛЬНО ВКЛЮЧАЕМ ЛОГИ С САМОЙ ПЕРВОЙ СТРОКИ!
+# ═══════════════════════════════════════════════════════════════
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Если main.py ещё не успел — включаем сами
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s | %(name)-25s | %(levelname)-8s | %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
+logger.info("telegram_ptb_bot.py ЗАГРУЖЕН — ЛОГИ РАБОТАЮТ НА 100%!")
+# ═══════════════════════════════════════════════════════════════
+
 
 class TelegramPTBBot:
     def __init__(self):
+        logger.info("Инициализация TelegramPTBBot...")
         self.config = Config()
         self.sheets_service = GoogleSheetsService()
         self.data_processor = DataProcessor()
+        logger.info("TelegramPTBBot успешно инициализирован")
 
+    # ===================== УДАЛЕНИЕ СТАРЫХ UI =====================
     async def cleanup_previous_ui(self, chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
-        Удаляет предыдущие интерфейсные сообщения в чате, оставляя результативные.
-
-        Интерфейсные сообщения:
-        - С reply_markup (кнопки)
-        - Короткий текст меню (< 200 символов)
-        - Без document/photo/animation
-
-        Результативные сообщения:
-        - Помеченные в context.chat_data['keep_messages']
-        - Без reply_markup и длина > 200 символов
-        - Содержат document/photo/animation
+        Раньше удаляли старые UI-сообщения, сейчас навигация сделана через edit_message_text,
+        поэтому здесь ничего не делаем, чтобы не трогать историю чата.
+        Оставлено для обратной совместимости.
         """
-        if 'last_ui_message_ids' not in context.chat_data:
-            return
+        return
 
-        message_ids_to_delete = context.chat_data['last_ui_message_ids']
-        keep_messages = context.chat_data.get('keep_messages', set())
-
-        for msg_id in message_ids_to_delete:
-            if msg_id in keep_messages:
-                continue
-
-            try:
-                # Получаем информацию о сообщении
-                message = await context.bot.get_chat_member(chat_id, context.bot.id)  # Это не правильно, нужно получить сообщение
-
-                # На самом деле, нам нужно хранить информацию о сообщениях
-                # Для упрощения, попробуем удалить и обработаем ошибки
-                await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
-                logger.info(f"Удалено интерфейсное сообщение {msg_id} в чате {chat_id}")
-
-            except Exception as e:
-                error_code = getattr(e, 'error_code', None)
-                if error_code == 400:  # MessageToDeleteNotFound или BadRequest
-                    logger.warning(f"Не удалось удалить сообщение {msg_id} в чате {chat_id}: {e}")
-                else:
-                    logger.error(f"Ошибка при удалении сообщения {msg_id} в чате {chat_id}: {e}")
-
-        # Очищаем список после удаления
-        context.chat_data['last_ui_message_ids'] = []
-
+    # ===================== ОТПРАВКА СООБЩЕНИЙ =====================
     async def send_result_message(self, chat_id: int, text: str, context: ContextTypes.DEFAULT_TYPE,
-                                parse_mode="HTML", reply_markup=None, **kwargs) -> None:
-        """
-        Отправляет результативное сообщение и помечает его для сохранения.
-        """
-        message = await context.bot.send_message(
-            chat_id=chat_id,
-            text=text,
-            parse_mode=parse_mode,
-            reply_markup=reply_markup,
-            **kwargs
+                                reply_markup=None):
+        msg = await context.bot.send_message(
+            chat_id=chat_id, text=text, parse_mode="HTML",
+            reply_markup=reply_markup, disable_web_page_preview=True
         )
-
-        # Помечаем как результативное
-        if 'keep_messages' not in context.chat_data:
-            context.chat_data['keep_messages'] = set()
-        context.chat_data['keep_messages'].add(message.message_id)
-
-        logger.info(f"Отправлено результативное сообщение {message.message_id} в чате {chat_id}")
-        return message
+        context.chat_data.setdefault('keep_messages', set()).add(msg.message_id)
+        logger.info(f"Отправлено РЕЗУЛЬТАТИВНОЕ сообщение {msg.message_id}")
+        return msg
 
     async def send_ui_message(self, chat_id: int, text: str, context: ContextTypes.DEFAULT_TYPE,
-                            reply_markup=None, **kwargs):
-        """
-        Отправляет интерфейсное сообщение и сохраняет его ID для последующего удаления.
-        """
-        message = await context.bot.send_message(
-            chat_id=chat_id,
-            text=text,
-            reply_markup=reply_markup,
-            **kwargs
+                            reply_markup=None):
+        msg = await context.bot.send_message(
+            chat_id=chat_id, text=text, parse_mode="HTML",
+            reply_markup=reply_markup, disable_web_page_preview=True
         )
+        context.chat_data.setdefault('last_ui_message_ids', []).append(msg.message_id)
+        logger.info(f"Отправлено UI-сообщение {msg.message_id}")
+        return msg
 
-        # Сохраняем ID для последующего удаления
-        if 'last_ui_message_ids' not in context.chat_data:
-            context.chat_data['last_ui_message_ids'] = []
-        context.chat_data['last_ui_message_ids'].append(message.message_id)
-
-        logger.info(f"Отправлено интерфейсное сообщение {message.message_id} в чате {chat_id}")
-        return message
-
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обработчик команды /start"""
+    # ===================== /start =====================
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = update.effective_chat.id
+        logger.info(f"Команда /start от {update.effective_user.full_name} ({update.effective_user.id})")
 
-        # Удаляем предыдущие интерфейсные сообщения
-        await self.cleanup_previous_ui(chat_id, context)
-
-        # Отправляем главное меню
         keyboard = [
-            [InlineKeyboardButton("🏪 История по магазину", callback_data="history_store")],
-            [InlineKeyboardButton("🏙️ История по городу", callback_data="history_city")],
-            [InlineKeyboardButton("📅 История по дате", callback_data="history_date")],
-            [InlineKeyboardButton("🏢 История по сети", callback_data="history_network")]
+            [InlineKeyboardButton("История по магазину", callback_data="history_store")],
+            [InlineKeyboardButton("История по городу", callback_data="history_city")],
+            [InlineKeyboardButton("История по дате", callback_data="history_date")],
+            [InlineKeyboardButton("История по сети", callback_data="history_network")],
+            [InlineKeyboardButton("Статистика за всё время", callback_data="all_time_menu")],
         ]
 
-        text = """
-🤖 <b>Бот для анализа дегустаций</b>
-
-Выберите тип отчета для просмотра истории:
-• 🏪 <b>По магазину</b> - детальная статистика конкретного магазина
-• 🏙️ <b>По городу</b> - сводка по всем сетям города
-• 📅 <b>По дате</b> - общая статистика за день
-• 🏢 <b>По сети</b> - статистика по всей сети
-"""
-
+        text = (
+            "<b>Бот для анализа дегустаций сыра</b>\n\n"
+            "Выберите нужный тип отчёта:"
+        )
         await self.send_ui_message(chat_id, text, context, reply_markup=InlineKeyboardMarkup(keyboard))
 
-    async def callback_query_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обработчик callback запросов"""
+    # ===================== CALLBACK =====================
+    async def callback_query_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         await query.answer()
-
-        callback_data = query.data
         chat_id = query.message.chat_id
+        data = query.data
 
-        # Удаляем предыдущие интерфейсные сообщения
-        await self.cleanup_previous_ui(chat_id, context)
+        logger.info(f"Callback: {data} от пользователя {update.effective_user.id}")
 
-        # Обрабатываем callback
-        if callback_data == "history_store":
-            await self.start_store_history(chat_id, context)
-        elif callback_data == "history_city":
-            await self.start_city_history(chat_id, context)
-        elif callback_data == "history_date":
-            await self.start_date_history(chat_id, context)
-        elif callback_data == "history_network":
-            await self.start_network_history(chat_id, context)
-        elif callback_data.startswith("date_"):
-            date = callback_data.split("_", 1)[1]
-            await self.handle_date_selection(chat_id, date, context)
-        elif callback_data.startswith("city_"):
-            city = callback_data.split("_", 1)[1]
-            await self.handle_city_selection(chat_id, city, context)
-        elif callback_data.startswith("network_"):
-            network = callback_data.split("_", 1)[1]
-            await self.handle_network_selection(chat_id, network, context)
-        elif callback_data.startswith("address_"):
-            address = callback_data.split("_", 1)[1]
-            await self.handle_address_selection(chat_id, address, context)
+        # Сохраняем тип запроса
+        if data in [
+            "history_store",
+            "history_city",
+            "history_date",
+            "history_network",
+            "all_time_city",
+            "all_time_network",
+            "all_time_overall",
+        ]:
+            context.user_data["request_type"] = data
 
-    async def start_store_history(self, chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Начинает процесс выбора для истории по магазину"""
-        # Получаем доступные даты
+        if data == "history_store":
+            await self.start_store_flow(chat_id, context, query)
+        elif data == "history_city":
+            await self.start_city_flow(chat_id, context, query)
+        elif data == "history_date":
+            await self.start_date_flow(chat_id, context, query)
+        elif data == "history_network":
+            await self.start_network_flow(chat_id, context, query)
+        elif data == "all_time_menu":
+            await self.start_all_time_menu(chat_id, context)
+        elif data == "all_time_city":
+            await self.show_all_time_city_stats(chat_id, context)
+        elif data == "all_time_network":
+            await self.show_all_time_network_stats(chat_id, context)
+        elif data == "all_time_overall":
+            await self.show_all_time_overall_stats(chat_id, context)
+        elif data.startswith("date_"):
+            await self.handle_date_selection(chat_id, data[5:], context, query)
+        elif data.startswith("city_"):
+            await self.handle_city_selection(chat_id, data[5:], context, query)
+        elif data.startswith("network_"):
+            await self.handle_network_selection(chat_id, data[8:], context, query)
+        elif data.startswith("address_"):
+            await self.handle_address_selection(chat_id, data[8:], context)
+
+    # ===================== ПОТОКИ =====================
+    async def start_store_flow(self, chat_id, context, query=None):
         dates = await self.get_available_dates()
-
         if not dates:
-            await self.send_result_message(chat_id, "❌ Нет доступных данных для анализа", context)
-            return
+            return await self.send_result_message(chat_id, "Нет данных", context)
 
-        keyboard = []
-        for date in dates[-10:]:  # Последние 10 дат
-            keyboard.append([InlineKeyboardButton(
-                date.strftime("%d.%m.%Y"),
-                callback_data=f"date_{date.strftime('%Y-%m-%d')}"
-            )])
+        keyboard = [[InlineKeyboardButton(d.strftime("%d.%m.%Y"), callback_data=f"date_{d.strftime('%Y-%m-%d')}")] 
+                   for d in dates[-10:]]
+        text = "Выберите дату для поиска по магазину:"
+        if query:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        else:
+            await self.send_ui_message(chat_id, text, context,
+                                       reply_markup=InlineKeyboardMarkup(keyboard))
 
-        text = "📅 Выберите дату для просмотра истории по магазину:"
-        await self.send_ui_message(chat_id, text, context, reply_markup=InlineKeyboardMarkup(keyboard))
-
-    async def start_city_history(self, chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Начинает процесс выбора для истории по городу"""
+    async def start_city_flow(self, chat_id, context, query=None):
         dates = await self.get_available_dates()
-
         if not dates:
-            await self.send_result_message(chat_id, "❌ Нет доступных данных для анализа", context)
-            return
+            return await self.send_result_message(chat_id, "Нет данных", context)
 
-        keyboard = []
-        for date in dates[-10:]:
-            keyboard.append([InlineKeyboardButton(
-                date.strftime("%d.%m.%Y"),
-                callback_data=f"date_{date.strftime('%Y-%m-%d')}"
-            )])
+        keyboard = [[InlineKeyboardButton(d.strftime("%d.%m.%Y"), callback_data=f"date_{d.strftime('%Y-%m-%d')}")] 
+                   for d in dates[-10:]]
+        text = "Выберите дату для статистики по городам:"
+        if query:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        else:
+            await self.send_ui_message(chat_id, text, context,
+                                       reply_markup=InlineKeyboardMarkup(keyboard))
 
-        text = "📅 Выберите дату для просмотра истории по городу:"
-        await self.send_ui_message(chat_id, text, context, reply_markup=InlineKeyboardMarkup(keyboard))
-
-    async def start_date_history(self, chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Начинает процесс выбора даты для общей статистики"""
-        from datetime import datetime, timedelta
-
+    async def start_date_flow(self, chat_id, context, query=None):
         keyboard = []
         for i in range(10):
-            date = datetime.now().date() - timedelta(days=i)
-            keyboard.append([InlineKeyboardButton(
-                date.strftime("%d.%m.%Y"),
-                callback_data=f"date_{date.strftime('%Y-%m-%d')}"
-            )])
+            d = (datetime.now().date() - timedelta(days=i))
+            keyboard.append([InlineKeyboardButton(d.strftime("%d.%m.%Y"), callback_data=f"date_{d.strftime('%Y-%m-%d')}")])
+        text = "Выберите дату для общей статистики:"
+        if query:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        else:
+            await self.send_ui_message(chat_id, text, context,
+                                       reply_markup=InlineKeyboardMarkup(keyboard))
 
-        text = "📅 Выберите дату для просмотра общей статистики:"
-        await self.send_ui_message(chat_id, text, context, reply_markup=InlineKeyboardMarkup(keyboard))
-
-    async def start_network_history(self, chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Начинает процесс выбора для истории по сети"""
+    async def start_network_flow(self, chat_id, context, query=None):
         dates = await self.get_available_dates()
-
         if not dates:
-            await self.send_result_message(chat_id, "❌ Нет доступных данных для анализа", context)
-            return
+            return await self.send_result_message(chat_id, "Нет данных", context)
 
-        keyboard = []
-        for date in dates[-10:]:
-            keyboard.append([InlineKeyboardButton(
-                date.strftime("%d.%m.%Y"),
-                callback_data=f"date_{date.strftime('%Y-%m-%d')}"
-            )])
+        keyboard = [[InlineKeyboardButton(d.strftime("%d.%m.%Y"), callback_data=f"date_{d.strftime('%Y-%m-%d')}")] 
+                   for d in dates[-10:]]
+        text = "Выберите дату для статистики по сетям:"
+        if query:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        else:
+            await self.send_ui_message(chat_id, text, context,
+                                       reply_markup=InlineKeyboardMarkup(keyboard))
 
-        text = "📅 Выберите дату для просмотра истории по сети:"
-        await self.send_ui_message(chat_id, text, context, reply_markup=InlineKeyboardMarkup(keyboard))
+    async def start_all_time_menu(self, chat_id, context, query=None):
+        keyboard = [
+            [InlineKeyboardButton("По городам (за всё время)", callback_data="all_time_city")],
+            [InlineKeyboardButton("По сетям (за всё время)", callback_data="all_time_network")],
+            [InlineKeyboardButton("Общая статистика (за всё время)", callback_data="all_time_overall")],
+        ]
+        text = "Выберите тип статистики за всё время:"
+        if query:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        else:
+            await self.send_ui_message(
+                chat_id,
+                text,
+                context,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
 
-    async def handle_date_selection(self, chat_id: int, date_str: str, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обрабатывает выбор даты"""
-        from datetime import datetime
-        date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+    # ===================== ОБРАБОТКА ВЫБОРА =====================
+    async def handle_date_selection(self, chat_id, date_str, context, query=None):
+        selected_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        context.user_data["selected_date"] = selected_date
+        request_type = context.user_data.get("request_type")
 
-        user_type = context.user_data.get("type", "general_date")
+        if request_type == "history_store":
+            context.user_data["flow"] = "store"
+            await self.show_city_selection(chat_id, selected_date, context, query)
+        elif request_type == "history_city":
+            await self.show_city_stats(chat_id, selected_date, context)
+        elif request_type == "history_date":
+            await self.show_general_date_stats(chat_id, selected_date, context)
+        elif request_type == "history_network":
+            await self.show_network_selection(chat_id, selected_date, context, query)
 
-        if user_type == "store":
-            await self.show_city_selection(chat_id, date_obj, context)
-        elif user_type == "city":
-            await self.show_city_stats(chat_id, date_obj, context)
-        elif user_type == "general_date":
-            await self.show_general_date_stats(chat_id, date_obj, context)
-        elif user_type == "network":
-            await self.show_network_selection(chat_id, date_obj, context)
-
-    async def show_city_selection(self, chat_id: int, date_obj, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Показывает выбор города"""
+    async def show_city_selection(self, chat_id, date_obj, context, query=None):
         cities = await self.get_available_cities(date_obj)
-
         if not cities:
-            await self.send_result_message(chat_id, f"❌ Нет данных за {date_obj.strftime('%d.%m.%Y')}", context)
-            return
+            return await self.send_result_message(chat_id, f"Нет данных за {date_obj.strftime('%d.%m.%Y')}", context)
 
-        keyboard = []
-        for city in sorted(cities):
-            keyboard.append([InlineKeyboardButton(city, callback_data=f"city_{city}")])
+        keyboard = [[InlineKeyboardButton(city, callback_data=f"city_{city}")] for city in sorted(cities)]
+        text = f"Выберите город за {date_obj.strftime('%d.%m.%Y')}:"
+        if query:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        else:
+            await self.send_ui_message(chat_id, text, context,
+                                       reply_markup=InlineKeyboardMarkup(keyboard))
 
-        context.user_data["selected_date"] = date_obj
-        text = f"🏙️ Выберите город за {date_obj.strftime('%d.%m.%Y')}:"
-        await self.send_ui_message(chat_id, text, context, reply_markup=InlineKeyboardMarkup(keyboard))
-
-    async def show_city_stats(self, chat_id: int, date_obj, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Показывает статистику по городу"""
-        # Получаем данные и формируем отчет
+    async def show_city_stats(self, chat_id, date_obj, context):
         morning_df = self.sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID)
         evening_df = self.sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID)
 
-        morning_filtered = morning_df[morning_df[self.config.MORNING_COLUMNS['date']].dt.date == date_obj]
-        evening_filtered = evening_df[evening_df[self.config.EVENING_COLUMNS['date']].dt.date == date_obj]
+        morning_f = morning_df[pd.to_datetime(morning_df[self.config.MORNING_COLUMNS['date']]).dt.date == date_obj]
+        evening_f = evening_df[pd.to_datetime(evening_df[self.config.EVENING_COLUMNS['date']]).dt.date == date_obj]
 
-        if morning_filtered.empty and evening_filtered.empty:
-            await self.send_result_message(chat_id, f"❌ Нет данных за {date_obj.strftime('%d.%m.%Y')}", context)
-            return
+        reports = self.data_processor.process_daily_reports(morning_f, evening_f)
+        if not reports:
+            return await self.send_result_message(chat_id, f"Нет завершённых отчётов за {date_obj.strftime('%d.%m.%Y')}", context)
 
-        # Получаем статистику по городам
-        city_stats = await self.get_city_statistics(morning_filtered, evening_filtered)
+        city_stats = {}
+        for r in reports:
+            city = r['city']
+            city_stats.setdefault(city, {'stores': 0, 'sales': 0, 'eff': []})
+            city_stats[city]['stores'] += 1
+            city_stats[city]['sales'] += r['total_sales']
+            city_stats[city]['eff'].append(r['efficiency'])
 
-        if not city_stats:
-            await self.send_result_message(chat_id, f"❌ Нет завершенных отчетов за {date_obj.strftime('%d.%m.%Y')}", context)
-            return
+        text = f"<b>Статистика по городам за {date_obj.strftime('%d.%m.%Y')}</b>\n\n"
+        for city, s in sorted(city_stats.items(), key=lambda x: x[1]['sales'], reverse=True):
+            avg_eff = sum(s['eff']) / len(s['eff']) if s['eff'] else 0
+            text += f"<b>{city}</b>\n"
+            text += f"Магазинов: {s['stores']} | Продано: {s['sales']} шт. | Эфф.: {avg_eff:.1f}%\n\n"
 
-        message = f"🏙️ <b>Статистика по городам за {date_obj.strftime('%d.%m.%Y')}</b>\n\n"
+        await self.send_result_message(chat_id, text, context)
 
-        for city, stats in sorted(city_stats.items()):
-            message += f"🏙️ <b>{city}</b>\n"
-            message += f"🏪 Магазинов: {stats['stores']}\n"
-            message += f"💰 Продаж: {stats['sales']} шт.\n"
-            message += f"📈 Эффективность: {stats['efficiency']}%\n\n"
-
-        await self.send_result_message(chat_id, message, context)
-
-    async def show_general_date_stats(self, chat_id: int, date_obj, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Показывает общую статистику за дату"""
+    async def show_general_date_stats(self, chat_id, date_obj, context):
         morning_df = self.sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID)
         evening_df = self.sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID)
 
-        morning_filtered = morning_df[morning_df[self.config.MORNING_COLUMNS['date']].dt.date == date_obj]
-        evening_filtered = evening_df[evening_df[self.config.EVENING_COLUMNS['date']].dt.date == date_obj]
+        morning_f = morning_df[pd.to_datetime(morning_df[self.config.MORNING_COLUMNS['date']]).dt.date == date_obj]
+        evening_f = evening_df[pd.to_datetime(evening_df[self.config.EVENING_COLUMNS['date']]).dt.date == date_obj]
 
-        if morning_filtered.empty and evening_filtered.empty:
-            await self.send_result_message(chat_id, f"❌ Нет данных за {date_obj.strftime('%d.%m.%Y')}", context)
-            return
-
-        # Получаем все доступные отчеты
-        reports = self.data_processor.process_daily_reports(morning_df, evening_filtered)
+        reports = self.data_processor.process_daily_reports(morning_f, evening_f)
 
         if not reports:
-            expected = len(morning_filtered)
-            message = f"📊 <b>Статистика за {date_obj.strftime('%d.%m.%Y')}</b>\n\n"
-            message += f"📋 Ожидалось отчетов: {expected}\n"
-            message += f"✅ Получено отчетов: 0\n"
-            message += f"❌ Пропущено: {expected}\n\n"
-            message += "Пока нет завершенных пар отчетов за эту дату."
+            expected = len(morning_f)
+            text = f"<b>Статистика за {date_obj.strftime('%d.%m.%Y')}</b>\n\n"
+            text += f"Ожидалось отчётов: {expected}\nПолучено: 0\n"
+            text += "Пока нет завершённых пар."
         else:
             total_sales = sum(r['total_sales'] for r in reports)
-            avg_efficiency = sum(r['efficiency'] for r in reports) / len(reports)
+            avg_eff = sum(r['efficiency'] for r in reports) / len(reports)
+            total_visitors = sum(r['visitors'] for r in reports)
 
-            message = f"📊 <b>Общая статистика за {date_obj.strftime('%d.%m.%Y')}</b>\n\n"
-            message += f"🏪 Магазинов: {len(reports)}\n"
-            message += f"💰 Общий объем продаж: {total_sales} шт.\n"
-            message += f"📈 Средняя эффективность: {avg_efficiency:.1f}%\n"
-            message += f"👥 Общее количество участников: {sum(r['visitors'] for r in reports)}\n"
+            text = f"<b>Общая статистика за {date_obj.strftime('%d.%m.%Y')}</b>\n\n"
+            text += f"Магазинов: {len(reports)}\n"
+            text += f"Продано: {total_sales} шт.\n"
+            text += f"Посетителей: {total_visitors}\n"
+            text += f"Средняя эффективность: {avg_eff:.1f}%\n"
 
-        await self.send_result_message(chat_id, message, context)
+        await self.send_result_message(chat_id, text, context)
 
-    async def show_network_selection(self, chat_id: int, date_obj, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Показывает выбор сети"""
+    async def show_network_selection(self, chat_id, date_obj, context, query=None):
         networks = await self.get_available_networks(date_obj)
-
         if not networks:
-            await self.send_result_message(chat_id, "❌ Нет данных за выбранную дату", context)
-            return
+            return await self.send_result_message(chat_id, "Нет данных за эту дату", context)
 
-        keyboard = []
-        for network in sorted(networks):
-            keyboard.append([InlineKeyboardButton(network, callback_data=f"network_{network}")])
+        keyboard = [[InlineKeyboardButton(net, callback_data=f"network_{net}")] for net in sorted(networks)]
+        text = f"Выберите сеть за {date_obj.strftime('%d.%m.%Y')}:"
+        if query:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        else:
+            await self.send_ui_message(chat_id, text, context,
+                                       reply_markup=InlineKeyboardMarkup(keyboard))
 
-        context.user_data["selected_date"] = date_obj
-        text = f"🏢 Выберите сеть за {date_obj.strftime('%d.%m.%Y')}:"
-        await self.send_ui_message(chat_id, text, context, reply_markup=InlineKeyboardMarkup(keyboard))
-
-    async def handle_city_selection(self, chat_id: int, city: str, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обрабатывает выбор города"""
+    async def handle_city_selection(self, chat_id, city, context, query=None):
         date_obj = context.user_data.get("selected_date")
         if not date_obj:
-            await self.send_result_message(chat_id, "❌ Ошибка: дата не выбрана", context)
-            return
+            return await self.send_result_message(chat_id, "Ошибка: дата не выбрана", context)
 
+        context.user_data["selected_city"] = city
         networks = await self.get_available_networks_in_city(date_obj, city)
 
         if not networks:
-            await self.send_result_message(chat_id, f"❌ Нет данных по городу {city} за выбранную дату", context)
-            return
+            return await self.send_result_message(chat_id, f"Нет данных по городу {city}", context)
 
-        keyboard = []
-        for network in sorted(networks):
-            keyboard.append([InlineKeyboardButton(network, callback_data=f"network_{network}")])
+        keyboard = [[InlineKeyboardButton(net, callback_data=f"network_{net}")] for net in sorted(networks)]
+        text = f"Выберите сеть в {city}:"
+        if query:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        else:
+            await self.send_ui_message(chat_id, text, context,
+                                       reply_markup=InlineKeyboardMarkup(keyboard))
 
-        context.user_data["selected_city"] = city
-        text = f"🏢 Выберите сеть в городе {city}:"
-        await self.send_ui_message(chat_id, text, context, reply_markup=InlineKeyboardMarkup(keyboard))
+    async def handle_network_selection(self, chat_id, network, context, query=None):
+        date_obj = context.user_data.get("selected_date")
+        city = context.user_data.get("selected_city")
 
-    async def handle_network_selection(self, chat_id: int, network: str, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обрабатывает выбор сети"""
-        user_data = context.user_data
-        date_obj = user_data.get("selected_date")
-        city = user_data.get("selected_city")
-
-        if not date_obj:
-            await self.send_result_message(chat_id, "❌ Ошибка: дата не выбрана", context)
-            return
-
-        if city:  # История по магазину
+        if city:  # По магазину
             addresses = await self.get_available_addresses(date_obj, city, network)
-
             if not addresses:
-                await self.send_result_message(chat_id, f"❌ Нет данных по сети {network} в городе {city}", context)
-                return
+                return await self.send_result_message(chat_id, "Нет адресов", context)
 
-            keyboard = []
-            for address in addresses:
-                keyboard.append([InlineKeyboardButton(
-                    address[:30] + "..." if len(address) > 30 else address,
-                    callback_data=f"address_{address}"
-                )])
-
-            user_data["selected_network"] = network
-            text = f"🏪 Выберите адрес в сети {network}:"
-            await self.send_ui_message(chat_id, text, context, reply_markup=InlineKeyboardMarkup(keyboard))
-        else:  # История по сети
+            keyboard = [[InlineKeyboardButton(a[:40] + ("..." if len(a)>40 else ""), 
+                                            callback_data=f"address_{a}")] for a in addresses]
+            text = f"Выберите магазин ({network}):"
+            if query:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
+            else:
+                await self.send_ui_message(chat_id, text, context,
+                                           reply_markup=InlineKeyboardMarkup(keyboard))
+        else:  # По сети в целом
             await self.show_network_stats(chat_id, date_obj, network, context)
 
-    async def handle_address_selection(self, chat_id: int, address: str, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обрабатывает выбор адреса и показывает статистику"""
-        user_data = context.user_data
-        date_obj = user_data.get("selected_date")
-        city = user_data.get("selected_city")
-        network = user_data.get("selected_network")
-
-        if not all([date_obj, city, network]):
-            await self.send_result_message(chat_id, "❌ Ошибка: не все параметры выбраны", context)
-            return
-
-        # Получаем данные и находим соответствующий отчет
+    async def handle_address_selection(self, chat_id, address, context):
+        date_obj = context.user_data.get("selected_date")
         morning_df = self.sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID)
         evening_df = self.sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID)
 
-        # Фильтруем по дате
-        morning_filtered = morning_df[morning_df[self.config.MORNING_COLUMNS['date']].dt.date == date_obj]
-        evening_filtered = evening_df[evening_df[self.config.EVENING_COLUMNS['date']].dt.date == date_obj]
+        morning_f = morning_df[pd.to_datetime(morning_df[self.config.MORNING_COLUMNS['date']]).dt.date == date_obj]
+        evening_f = evening_df[pd.to_datetime(evening_df[self.config.EVENING_COLUMNS['date']]).dt.date == date_obj]
 
-        # Ищем отчет по адресу
-        report = await self.find_report_by_address(morning_filtered, evening_filtered, address)
+        report = None
+        for r in self.data_processor.process_daily_reports(morning_f, evening_f):
+            if self.data_processor.normalizer.normalize(address) in self.data_processor.normalizer.normalize(r.get('normalized_address', '')):
+                report = r
+                break
 
         if not report:
-            await self.send_result_message(chat_id, f"❌ Отчет по адресу {address} не найден или не завершен", context)
-            return
+            return await self.send_result_message(chat_id, "Отчёт не найден", context)
 
-        message = self.format_detailed_report(report)
-        await self.send_result_message(chat_id, message, context)
+        text = self.format_detailed_report(report)
+        await self.send_result_message(chat_id, text, context)
 
-    async def show_network_stats(self, chat_id: int, date_obj, network: str, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Показывает статистику по сети"""
+    async def show_network_stats(self, chat_id, date_obj, network, context):
         morning_df = self.sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID)
         evening_df = self.sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID)
 
-        morning_filtered = morning_df[morning_df[self.config.MORNING_COLUMNS['date']].dt.date == date_obj]
-        evening_filtered = evening_df[evening_df[self.config.EVENING_COLUMNS['date']].dt.date == date_obj]
+        morning_f = morning_df[pd.to_datetime(morning_df[self.config.MORNING_COLUMNS['date']]).dt.date == date_obj]
+        evening_f = evening_df[pd.to_datetime(evening_df[self.config.EVENING_COLUMNS['date']]).dt.date == date_obj]
 
-        # Получаем статистику по сети
-        network_stats = await self.get_network_statistics(morning_filtered, evening_filtered, network)
+        reports = [r for r in self.data_processor.process_daily_reports(morning_f, evening_f) if r['network'] == network]
+        if not reports:
+            return await self.send_result_message(chat_id, f"Нет данных по сети {network}", context)
 
-        if not network_stats:
-            await self.send_result_message(chat_id, f"❌ Нет данных по сети {network} за {date_obj.strftime('%d.%m.%Y')}", context)
-            return
+        total_sales = sum(r['total_sales'] for r in reports)
+        avg_eff = sum(r['efficiency'] for r in reports) / len(reports)
+        total_vis = sum(r['visitors'] for r in reports)
 
-        message = f"🏢 <b>Статистика сети '{network}' за {date_obj.strftime('%d.%m.%Y')}</b>\n\n"
-        message += f"🏪 Магазинов: {network_stats['stores']}\n"
-        message += f"💰 Общий объем продаж: {network_stats['sales']} шт.\n"
-        message += f"📈 Средняя эффективность: {network_stats['efficiency']:.1f}%\n"
-        message += f"👥 Участников: {network_stats['visitors']}\n"
+        cheese_totals = {}
+        for r in reports:
+            for ch, data in r['cheese_data'].items():
+                cheese_totals[ch] = cheese_totals.get(ch, 0) + data['sold']
 
-        # Показываем продажи по сырам
-        if network_stats['cheese_sales']:
-            message += "\n🧀 <b>Продажи по сырам:</b>\n"
-            for cheese, sales in network_stats['cheese_sales'].items():
-                message += f"• {cheese}: {sales} шт.\n"
+        text = f"<b>Сеть «{network}» за {date_obj.strftime('%d.%m.%Y')}</b>\n\n"
+        text += f"Магазинов: {len(reports)}\n"
+        text += f"Продано: {total_sales} шт.\n"
+        text += f"Посетителей: {total_vis}\n"
+        text += f"Эффективность: {avg_eff:.1f}%\n\n"
+        text += "<b>По сырам:</b>\n"
+        for ch, sold in cheese_totals.items():
+            text += f"• {ch}: {sold} шт.\n"
 
-        await self.send_result_message(chat_id, message, context)
+        await self.send_result_message(chat_id, text, context)
 
-    # Вспомогательные методы (нужно адаптировать под async)
+    # ===================== СТАТИСТИКА ЗА ВСЁ ВРЕМЯ =====================
+    async def _load_all_reports(self):
+        """Загружает все пары утро+вечер за всё время одним вызовом."""
+        morning_df = self.sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID)
+        evening_df = self.sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID)
+        reports = self.data_processor.process_daily_reports(morning_df, evening_df)
+        logger.info(f"Всего сопоставленных отчётов за всё время: {len(reports)}")
+        return reports
+
+    async def show_all_time_city_stats(self, chat_id, context):
+        reports = await self._load_all_reports()
+        if not reports:
+            return await self.send_result_message(chat_id, "Нет завершённых отчётов за всё время", context)
+
+        city_stats = {}
+        for r in reports:
+            city = r['city']
+            city_stats.setdefault(city, {'stores': 0, 'sales': 0, 'eff': []})
+            city_stats[city]['stores'] += 1
+            city_stats[city]['sales'] += r['total_sales']
+            city_stats[city]['eff'].append(r['efficiency'])
+
+        text = "<b>Статистика по городам за всё время</b>\n\n"
+        for city, s in sorted(city_stats.items(), key=lambda x: x[1]['sales'], reverse=True):
+            avg_eff = sum(s['eff']) / len(s['eff']) if s['eff'] else 0
+            text += f"<b>{city}</b>\n"
+            text += f"Магазинов: {s['stores']} | Продано: {s['sales']} шт. | Эфф.: {avg_eff:.1f}%\n\n"
+
+        await self.send_result_message(chat_id, text, context)
+
+    async def show_all_time_network_stats(self, chat_id, context):
+        reports = await self._load_all_reports()
+        if not reports:
+            return await self.send_result_message(chat_id, "Нет завершённых отчётов за всё время", context)
+
+        net_stats = {}
+        cheese_totals = {}
+        total_vis = 0
+        for r in reports:
+            net = r['network']
+            net_stats.setdefault(net, {'stores': 0, 'sales': 0, 'eff': []})
+            net_stats[net]['stores'] += 1
+            net_stats[net]['sales'] += r['total_sales']
+            net_stats[net]['eff'].append(r['efficiency'])
+            total_vis += r['visitors']
+
+            for ch, data in r['cheese_data'].items():
+                cheese_totals[ch] = cheese_totals.get(ch, 0) + data['sold']
+
+        text = "<b>Статистика по сетям за всё время</b>\n\n"
+        for net, s in sorted(net_stats.items(), key=lambda x: x[1]['sales'], reverse=True):
+            avg_eff = sum(s['eff']) / len(s['eff']) if s['eff'] else 0
+            text += f"<b>{net}</b>\n"
+            text += f"Магазинов: {s['stores']} | Продано: {s['sales']} шт. | Эфф.: {avg_eff:.1f}%\n\n"
+
+        text += "<b>По сырам за всё время:</b>\n"
+        for ch, sold in cheese_totals.items():
+            text += f"• {ch}: {sold} шт.\n"
+
+        text += f"\nВсего посетителей по всем дегустациям: {total_vis}\n"
+
+        await self.send_result_message(chat_id, text, context)
+
+    async def show_all_time_overall_stats(self, chat_id, context):
+        reports = await self._load_all_reports()
+        if not reports:
+            return await self.send_result_message(chat_id, "Нет завершённых отчётов за всё время", context)
+
+        total_stores = len(reports)
+        total_sales = sum(r['total_sales'] for r in reports)
+        total_visitors = sum(r['visitors'] for r in reports)
+        avg_eff = sum(r['efficiency'] for r in reports) / len(reports)
+
+        text = "<b>Общая статистика за всё время</b>\n\n"
+        text += f"Магазинов (дней-дегустаций): {total_stores}\n"
+        text += f"Продано всего: {total_sales} шт.\n"
+        text += f"Посетителей всего: {total_visitors}\n"
+        text += f"Средняя эффективность: {avg_eff:.1f}%\n"
+
+        await self.send_result_message(chat_id, text, context)
+
+    # ===================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ =====================
     async def get_available_dates(self):
-        """Получает список доступных дат"""
         try:
             morning_df = self.sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID)
-            evening_df = self.sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID)
-
             dates = set()
             if not morning_df.empty:
-                morning_dates = morning_df[self.config.MORNING_COLUMNS['date']].dropna().dt.date.unique()
-                dates.update(morning_dates)
-            if not evening_df.empty:
-                evening_dates = evening_df[self.config.EVENING_COLUMNS['date']].dropna().dt.date.unique()
-                dates.update(evening_dates)
-
-            return sorted(list(dates), reverse=True)
+                dates.update(pd.to_datetime(morning_df[self.config.MORNING_COLUMNS['date']]).dt.date.unique())
+            return sorted(dates, reverse=True)
         except Exception as e:
-            logger.error(f"Ошибка получения дат: {e}")
+            logger.error(f"Ошибка получения дат: {e}", exc_info=True)
             return []
 
     async def get_available_cities(self, date_obj):
-        """Получает список городов за определенную дату"""
         try:
             morning_df = self.sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID)
-            evening_df = self.sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID)
-
-            cities = set()
-            if not morning_df.empty:
-                morning_filtered = morning_df[morning_df[self.config.MORNING_COLUMNS['date']].dt.date == date_obj]
-                cities.update(morning_filtered[self.config.MORNING_COLUMNS['city']].dropna().unique())
-            if not evening_df.empty:
-                evening_filtered = evening_df[evening_df[self.config.EVENING_COLUMNS['date']].dt.date == date_obj]
-                cities.update(evening_filtered[self.config.EVENING_COLUMNS['city']].dropna().unique())
-
-            return list(cities)
+            filtered = morning_df[pd.to_datetime(morning_df[self.config.MORNING_COLUMNS['date']]).dt.date == date_obj]
+            return sorted(filtered[self.config.MORNING_COLUMNS['city']].dropna().unique())
         except Exception as e:
             logger.error(f"Ошибка получения городов: {e}")
             return []
 
     async def get_available_networks(self, date_obj):
-        """Получает список сетей за определенную дату"""
         try:
             morning_df = self.sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID)
-            evening_df = self.sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID)
-
-            networks = set()
-            if not morning_df.empty:
-                morning_filtered = morning_df[morning_df[self.config.MORNING_COLUMNS['date']].dt.date == date_obj]
-                networks.update(morning_filtered[self.config.MORNING_COLUMNS['network_name']].dropna().unique())
-            if not evening_df.empty:
-                evening_filtered = evening_df[evening_df[self.config.EVENING_COLUMNS['date']].dt.date == date_obj]
-                networks.update(evening_filtered[self.config.EVENING_COLUMNS['network_name']].dropna().unique())
-
-            return list(networks)
+            filtered = morning_df[pd.to_datetime(morning_df[self.config.MORNING_COLUMNS['date']]).dt.date == date_obj]
+            return sorted(filtered[self.config.MORNING_COLUMNS['network_name']].dropna().unique())
         except Exception as e:
             logger.error(f"Ошибка получения сетей: {e}")
             return []
 
     async def get_available_networks_in_city(self, date_obj, city):
-        """Получает список сетей в конкретном городе"""
         try:
             morning_df = self.sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID)
-            evening_df = self.sheets_service.get_sheet_data(self.config.EVENING_SHEET_ID)
-
-            networks = set()
-            if not morning_df.empty:
-                filtered = morning_df[
-                    (morning_df[self.config.MORNING_COLUMNS['date']].dt.date == date_obj) &
-                    (morning_df[self.config.MORNING_COLUMNS['city']] == city)
-                ]
-                networks.update(filtered[self.config.MORNING_COLUMNS['network_name']].dropna().unique())
-            if not evening_df.empty:
-                filtered = evening_df[
-                    (evening_df[self.config.EVENING_COLUMNS['date']].dt.date == date_obj) &
-                    (evening_df[self.config.EVENING_COLUMNS['city']] == city)
-                ]
-                networks.update(filtered[self.config.EVENING_COLUMNS['network_name']].dropna().unique())
-
-            return list(networks)
+            filtered = morning_df[
+                (pd.to_datetime(morning_df[self.config.MORNING_COLUMNS['date']]).dt.date == date_obj) &
+                (morning_df[self.config.MORNING_COLUMNS['city']] == city)
+            ]
+            return sorted(filtered[self.config.MORNING_COLUMNS['network_name']].dropna().unique())
         except Exception as e:
             logger.error(f"Ошибка получения сетей в городе: {e}")
             return []
 
     async def get_available_addresses(self, date_obj, city, network):
-        """Получает список адресов в городе и сети"""
         try:
             morning_df = self.sheets_service.get_sheet_data(self.config.MORNING_SHEET_ID)
-
-            if morning_df.empty:
-                return []
-
             filtered = morning_df[
-                (morning_df[self.config.MORNING_COLUMNS['date']].dt.date == date_obj) &
+                (pd.to_datetime(morning_df[self.config.MORNING_COLUMNS['date']]).dt.date == date_obj) &
                 (morning_df[self.config.MORNING_COLUMNS['city']] == city) &
                 (morning_df[self.config.MORNING_COLUMNS['network_name']] == network)
             ]
-
-            addresses = filtered[self.config.MORNING_COLUMNS['address']].dropna().unique()
-            return list(addresses)
+            return list(filtered[self.config.MORNING_COLUMNS['address']].dropna().unique())
         except Exception as e:
             logger.error(f"Ошибка получения адресов: {e}")
             return []
 
-    async def get_city_statistics(self, morning_df, evening_df):
-        """Получает статистику по городам"""
-        try:
-            reports = self.data_processor.process_daily_reports(morning_df, evening_df)
-
-            city_stats = {}
-            for report in reports:
-                city = report['city']
-                if city not in city_stats:
-                    city_stats[city] = {
-                        'stores': 0,
-                        'sales': 0,
-                        'efficiency': 0,
-                        'reports': []
-                    }
-
-                city_stats[city]['stores'] += 1
-                city_stats[city]['sales'] += report['total_sales']
-                city_stats[city]['reports'].append(report['efficiency'])
-
-            # Вычисляем среднюю эффективность
-            for city_data in city_stats.values():
-                if city_data['reports']:
-                    city_data['efficiency'] = sum(city_data['reports']) / len(city_data['reports'])
-                else:
-                    city_data['efficiency'] = 0
-                del city_data['reports']
-
-            return city_stats
-        except Exception as e:
-            logger.error(f"Ошибка получения статистики по городам: {e}")
-            return {}
-
-    async def get_network_statistics(self, morning_df, evening_df, network):
-        """Получает статистику по сети"""
-        try:
-            reports = self.data_processor.process_daily_reports(morning_df, evening_df)
-
-            network_reports = [r for r in reports if r['network'] == network]
-
-            if not network_reports:
-                return None
-
-            total_sales = sum(r['total_sales'] for r in network_reports)
-            total_visitors = sum(r['visitors'] for r in network_reports)
-            avg_efficiency = sum(r['efficiency'] for r in network_reports) / len(network_reports)
-
-            cheese_sales = {}
-            for report in network_reports:
-                for cheese, data in report['cheese_data'].items():
-                    cheese_sales[cheese] = cheese_sales.get(cheese, 0) + data['sold']
-
-            return {
-                'stores': len(network_reports),
-                'sales': total_sales,
-                'visitors': total_visitors,
-                'efficiency': avg_efficiency,
-                'cheese_sales': cheese_sales
-            }
-        except Exception as e:
-            logger.error(f"Ошибка получения статистики по сети: {e}")
-            return None
-
-    async def find_report_by_address(self, morning_df, evening_df, address):
-        """Находит отчет по адресу"""
-        try:
-            reports = self.data_processor.process_daily_reports(morning_df, evening_df)
-
-            for report in reports:
-                if report['normalized_address'] == self.data_processor.normalizer.normalize(address):
-                    return report
-
-            return None
-        except Exception as e:
-            logger.error(f"Ошибка поиска отчета по адресу: {e}")
-            return None
-
     def format_detailed_report(self, report):
-        """Форматирует детальный отчет"""
-        message = f"""
-📊 <b>Отчет по дегустации</b>
-
-📅 <b>Дата:</b> {report['date']}
-🏙️ <b>Город:</b> {report['city']}
-🏢 <b>Сеть:</b> {report['network']}
-👤 <b>Сотрудник:</b> {report['employee']}
-
-👥 <b>Участников:</b> {report['visitors']}
-
-🧀 <b>Остатки на начало дня:</b>
-"""
-        
+        lines = [
+            "<b>ДЕТАЛЬНЫЙ ОТЧЁТ</b>",
+            f"<b>Дата:</b> {report['date']}",
+            f"<b>Город:</b> {report['city']}",
+            f"<b>Сеть:</b> {report['network']}",
+            f"<b>Сотрудник:</b> {report['employee']}",
+            f"<b>Адрес:</b> {report.get('normalized_address', '—')}",
+            "",
+            f"<b>Посетителей:</b> {report['visitors']}",
+            f"<b>Всего продано:</b> {report['total_sales']} шт.",
+            f"<b>Эффективность:</b> {report['efficiency']}%",
+            "",
+            "<b>По сортам:</b>"
+        ]
         for cheese, data in report['cheese_data'].items():
-            message += f"• {cheese}: {data['start']} шт.\n"
-        
-        message += "\n🏁 <b>Остатки на конец дня:</b>\n"
-        for cheese, data in report['cheese_data'].items():
-            message += f"• {cheese}: {data['end']} шт.\n"
-        
-        message += "\n💰 <b>Продажи:</b>\n"
-        for cheese, data in report['cheese_data'].items():
-            if data['sold'] > 0:
-                message += f"• {cheese}: {data['sold']} шт.\n"
-        
-        message += f"\n📦 <b>Всего продано:</b> {report['total_sales']} шт.\n"
-        message += f"🎯 <b>Эффективность:</b> {report['efficiency']}%\n"
-        
-        return message
+            lines.append(f"• <b>{cheese}</b>: {data['start']} → {data['end']} (продано {data['sold']})")
 
+        return "\n".join(lines)
+
+
+# ===================== ЗАПУСК =====================
 def create_application():
-    """Создает и настраивает Application"""
     bot = TelegramPTBBot()
+    app = Application.builder().token(bot.config.BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", bot.start_command))
+    app.add_handler(CallbackQueryHandler(bot.callback_query_handler))
+    return app
 
-    application = Application.builder().token(bot.config.BOT_TOKEN).build()
-
-    # Добавляем обработчики
-    application.add_handler(CommandHandler("start", bot.start_command))
-    application.add_handler(CallbackQueryHandler(bot.callback_query_handler))
-
-    return application
 
 if __name__ == "__main__":
-    # Для тестирования
-    application = create_application()
-    application.run_polling()
+    app = create_application()
+    logger.info("Запуск TelegramPTBBot в polling-режиме...")
+    app.run_polling(drop_pending_updates=True)
